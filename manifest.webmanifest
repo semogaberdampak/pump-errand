@@ -1,0 +1,17 @@
+{
+  "name": "Pencatatan Pemeran",
+  "short_name": "Pemeran",
+  "description": "Aplikasi mobile-first untuk pencatatan pameran: Persiapan, Pemeran, dan Penginputan. Data tersimpan di Google Spreadsheet via Apps Script.",
+  "start_url": "./pameran.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#DFDEDC",
+  "theme_color": "#DFDEDC",
+  "lang": "id",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
