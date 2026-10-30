@@ -43,11 +43,15 @@
   window.tutupModal = function () { $('modalUmum').classList.remove('open'); };
 
   /* ---------------- Navigasi layar ---------------- */
-  const SCREENS = ['home', 'persiapan', 'pameran', 'penginputan'];
+  const SCREENS = ['login', 'home', 'persiapan', 'pameran', 'penginputan', 'admin'];
   window.goScreen = function (nama) {
-    SCREENS.forEach((s) => {
-      const el = $('scr-' + s);
-      if (el) el.classList.toggle('active', s === nama);
+    if (nama === 'admin') {
+      const s = GAS.getSession();
+      if (!s || !s.user || s.user.role !== 'ADMIN') { toast('Khusus Admin', 'error'); return; }
+    }
+    SCREENS.forEach((sc) => {
+      const el = $('scr-' + sc);
+      if (el) el.classList.toggle('active', sc === nama);
     });
     document.querySelectorAll('.seg-nav button[data-screen]').forEach((b) => {
       b.classList.toggle('aktif', b.dataset.screen === nama);
@@ -55,6 +59,7 @@
     if (nama === 'persiapan') renderPersiapan();
     if (nama === 'pameran') renderPameran();
     if (nama === 'penginputan') renderPenginputan();
+    if (nama === 'admin') muaiUsers();
     window.scrollTo({ top: 0 });
   };
 
@@ -109,11 +114,15 @@
   }
 
   window.buatEventBaru = function () {
-    showModalBox('Buat Pameran Baru', `
-      <div class="form-group"><label class="form-label" for="evNama">Nama pameran</label>
+    const hariIni = new Date().toISOString().slice(0, 10);
+    showModalBox('Buat Agenda Pameran Baru', `
+      <div class="form-group"><label class="form-label" for="evNama">Judul pameran</label>
         <input type="text" id="evNama" placeholder="Pemeran Buku Oktober 2026"></div>
-      <div class="form-group"><label class="form-label" for="evTanggal">Tanggal</label>
-        <input type="date" id="evTanggal" value="${new Date().toISOString().slice(0, 10)}"></div>
+      <div class="form-group"><label class="form-label" for="evTanggal">Tanggal mulai</label>
+        <input type="date" id="evTanggal" value="${hariIni}"></div>
+      <div class="form-group"><label class="form-label" for="evTanggalSelesai">Sampai tanggal selesai
+        <small>(kosongkan bila hanya satu hari)</small></label>
+        <input type="date" id="evTanggalSelesai" min="${hariIni}"></div>
       <div class="form-group"><label class="form-label" for="evCatatan">Catatan (opsional)</label>
         <input type="text" id="evCatatan" placeholder="Lokasi, booth, dll"></div>
     `, `<div class="btn-row">
@@ -124,10 +133,19 @@
   };
 
   window.simpanEventBaru = function () {
-    const ev = Store.buatEvent($('evNama').value, $('evTanggal').value, $('evCatatan').value);
+    const selesai = $('evTanggalSelesai').value;
+    const tglLabel = selesai && selesai !== $('evTanggal').value
+      ? $('evTanggal').value + ' s.d. ' + selesai
+      : $('evTanggal').value;
+    const ev = Store.buatEvent($('evNama').value, tglLabel, $('evCatatan').value);
+    // simpan rentang terstruktur untuk gerbang sesi & nama sheet
+    Store.updateEvent(ev.id, {
+      tglMulai: $('evTanggal').value,
+      tglSelesai: selesai || $('evTanggal').value,
+    });
     tutupModal();
     bukaEvent(ev.id);
-    toast('Pameran "' + ev.nama + '" dibuat', 'ok');
+    toast('Agenda "' + ev.nama + '" dibuat', 'ok');
   };
 
   window.bukaEvent = function (id) {
@@ -255,6 +273,16 @@
 
   function renderPameran() {
     if (!butuhEvent()) return;
+    // Gerbang waktu: sesi Pemeran hanya terbuka pada rentang tanggal agenda
+    const ev = Store.getEvents().find((e) => e.id === evtId);
+    if (ev && ev.tglMulai) {
+      const hariIni = new Date().toISOString().slice(0, 10);
+      if (hariIni < ev.tglMulai || hariIni > (ev.tglSelesai || ev.tglMulai)) {
+        toast('Sesi Pemeran baru terbuka saat hari-H (' + ev.tanggal + ')', 'error');
+        goScreen('persiapan');
+        return;
+      }
+    }
     renderKeranjang();
     renderRiwayatTransaksi();
   }
@@ -589,8 +617,131 @@
     b.textContent = n;
   }
 
+  /* ================= AUTH / RBAC (via Google Apps Script) ================= */
+  let sesiUser = null; // {email, nama, cabang, role}
+
+  function tampilkanApp(user) {
+    sesiUser = user;
+    $('scr-login').classList.remove('active');
+    const navAdmin = $('navAdminBtn');
+    if (navAdmin) navAdmin.style.display = user.role === 'ADMIN' ? '' : 'none';
+    const chip = $('admRoleChip');
+    if (chip) chip.textContent = user.role;
+    const urlInput = $('gasUrl');
+    if (urlInput) urlInput.value = GAS.getUrl();
+    $('homeEventInfo').textContent = user.cabang + ' · ' + user.nama;
+    goScreen('home');
+    tarikMasterProduk();
+  }
+
+  window.aksiLogin = async function (e) {
+    e.preventDefault();
+    const btn = $('btnLogin');
+    btn.disabled = true; btn.textContent = 'Memeriksa…';
+    try {
+      const user = await GAS.login($('loginEmail').value.trim(), $('loginPass').value);
+      toast('Halo, ' + (user.nama || user.email));
+      tampilkanApp(user);
+    } catch (err) {
+      toast('Login gagal: ' + err.message, 'error');
+    } finally {
+      btn.disabled = false; btn.textContent = 'Masuk';
+    }
+    return false;
+  };
+
+  window.keluarLogin = function () {
+    GAS.logout();
+    location.reload();
+  };
+
+  /* Tarik master produk dari sheet MasterProduk (tanpa data dummy). */
+  async function tarikMasterProduk() {
+    try {
+      const rows = await GAS.getMasterProduk();
+      Store.setProducts(rows.map((r) => ({
+        kode: String(r.kode || '').trim(),
+        nama: r.nama || '',
+        kategori: (r.kategori || 'KANISIUS').toUpperCase(),
+        harga: Number(r.harga || 0),
+      })));
+    } catch (err) {
+      console.warn('Master produk belum dapat diambil:', err.message);
+    }
+  }
+
+  /* ================= HALAMAN ADMIN ================= */
+  window.simpanGasUrl = function () {
+    GAS.setUrl($('gasUrl').value);
+    toast('URL Apps Script disimpan');
+  };
+
+  function catatLog(txt) {
+    const box = $('admLog');
+    box.textContent = new Date().toLocaleTimeString('id-ID') + ' ▸ ' + txt + '\n' + box.textContent;
+  }
+
+  window.tesKoneksi = async function () {
+    catatLog('ping…');
+    try { const d = await GAS.runTest('ping'); catatLog('OK: ' + JSON.stringify(d)); toast('Koneksi OK'); }
+    catch (e) { catatLog('GAGAL: ' + e.message); toast('Koneksi gagal', 'error'); }
+  };
+
+  window.jalanTes = async function (nama) {
+    catatLog('test ' + nama + '…');
+    try { const d = await GAS.runTest(nama); catatLog(JSON.stringify(d, null, 1)); toast('Tes selesai'); }
+    catch (e) { catatLog('GAGAL: ' + e.message); toast('Tes gagal', 'error'); }
+  };
+
+  window.bersihkanLog = function () { $('admLog').textContent = '(log dibersihkan)'; };
+
+  window.muaiUsers = async function () {
+    const tbody = document.querySelector('#tblUsers tbody');
+    tbody.innerHTML = '<tr><td colspan="4" class="hint-text">Memuat…</td></tr>';
+    try {
+      const users = await GAS.listUsers();
+      tbody.innerHTML = users.map((u) => `
+        <tr>
+          <td>${esc(u.cabang)}</td>
+          <td class="cell-truncate">${esc(u.email)}</td>
+          <td><span class="chip chip-role">${esc(u.role)}</span></td>
+          <td><button class="btn btn-danger btn-sm" onclick="hapusUser('${esc(u.email)}')">Hapus</button></td>
+        </tr>`).join('') || '<tr><td colspan="4" class="hint-text">Belum ada user.</td></tr>';
+    } catch (e) {
+      tbody.innerHTML = `<tr><td colspan="4" class="hint-text">Gagal memuat: ${esc(e.message)}</td></tr>`;
+    }
+  };
+
+  window.tambahUser = async function () {
+    const u = {
+      cabang: $('admCabang').value.trim(),
+      email: $('admEmail').value.trim(),
+      pass: $('admPass').value.trim(),
+      role: $('admRole').value,
+      nama: $('admEmail').value.split('@')[0],
+    };
+    if (!u.cabang || !u.email || u.pass.length < 6) { toast('Lengkapi data (sandi ≥6)', 'error'); return; }
+    try {
+      await GAS.addUser(u);
+      toast('Akun ' + u.email + ' dibuat — user bisa langsung login');
+      $('admCabang').value = ''; $('admEmail').value = ''; $('admPass').value = '';
+      muaiUsers();
+    } catch (e) { toast('Gagal: ' + e.message, 'error'); }
+  };
+
+  window.hapusUser = async function (email) {
+    if (!confirm('Hapus akun ' + email + '?')) return;
+    try { await GAS.deleteUser(email); toast('User dihapus'); muaiUsers(); }
+    catch (e) { toast('Gagal: ' + e.message, 'error'); }
+  };
+
   /* ================= INIT ================= */
   document.addEventListener('DOMContentLoaded', function () {
+    // Gate RBAC: jika belum ada sesi valid, tahan di layar login.
+    const s = GAS.getSession();
+    if (s && s.user) tampilkanApp(s.user);
+    else $('scr-login').classList.add('active');
+
     // Restore event aktif
     const id = Store.getActiveId();
     if (id && Store.getEvents().some((e) => e.id === id)) {
@@ -599,7 +750,6 @@
       $('homeEventInfo').textContent = ev.nama + ' · ' + ev.tanggal;
     }
     renderHome();
-    goScreen('home');
 
     // Shortcut pencarian: "/" fokus ke input cari
     document.addEventListener('keydown', function (e) {

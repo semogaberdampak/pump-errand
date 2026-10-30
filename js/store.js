@@ -33,14 +33,10 @@
     'HP/laptop scanner siap + baterai penuh',
   ];
 
-  // Produk contoh (master data awal — bisa diedit/ditambah via UI)
-  const CONTOH_PRODUK = [
-    { kode: 'B001', nama: 'Buku Panduan Ibadah', kategori: 'KANISIUS', harga: 45000 },
-    { kode: 'B002', nama: 'Kitab Suci LEUVEN', kategori: 'KANISIUS', harga: 120000 },
-    { kode: 'B003', nama: 'Novel Best Seller', kategori: 'NON_KANISIUS', harga: 89000 },
-    { kode: 'M001', nama: 'Merchandise Tote Bag', kategori: 'EKSTERNAL', harga: 65000 },
-    { kode: 'M002', nama: 'Gantung Kunci', kategori: 'EKSTERNAL', harga: 15000 },
-  ];
+  // Master produk TIDAK disimpan sebagai dummy di klien.
+  // Sumber kebenaran: sheet "MasterProduk" via GAS (js/gas.js).
+  // Cache lokal hanya menampung hasil tarik terakhir dari server.
+  const CONTOH_PRODUK = [];
 
   function baca(kunci, defaultVal) {
     try {
