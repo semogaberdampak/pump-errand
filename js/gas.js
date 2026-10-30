@@ -16,7 +16,7 @@
   const K_URL = 'pameran.gasUrl';
   // Fallback: isi langsung di baris berikut bila tidak mau menempel tiap perangkat,
   // atau set lewat URL halaman: ?gas=https://script.google.com/macros/s/xxx/exec
-  const DEFAULT_URL = '';
+  const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbxHG3JWApQ0nkC_4m45hnO8gM-k8EwqOtqWrYJLP9Ag-YpXj-6gs8XRDBCtO0zCfmOG/exec';
   const K_SESSION = 'pameran.session';
 
   function getUrl() {

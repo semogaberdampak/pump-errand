@@ -60,3 +60,7 @@ Beberapa pameran dapat berjalan paralel; semuanya terisolasi per event id.
 - Scanner QR/barcode produk memakai `vendor/html5-qrcode.min.js` yang sudah dipakai induk.
 - Multi-user (kasir vs verifikator) mengikuti pola peran pada index.html.
 - PWA: manifest + service worker offline.
+
+---
+
+📌 **Panduan deploy backend (Apps Script) tersedia di [`PANDUAN-DEPLOY.md`](PANDUAN-DEPLOY.md).**
