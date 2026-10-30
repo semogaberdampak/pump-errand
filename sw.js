@@ -1,13 +1,13 @@
 /* ============================================================
-   sw.js — Service Worker Pencatatan Pemeran (PWA)
+   sw.js — Service Worker Pencatatan Pameran (PWA)
    Strategi: network-first untuk navigasi & API, cache-first
    untuk aset statis. Saat offline, halaman tetap terbuka dari
    cache; panggilan Apps Script gagal dengan pesan jelas.
    ============================================================ */
-const CACHE = 'pemeran-v1';
+const CACHE = 'pameran-v2';
 const ASSETS = [
   './',
-  './pameran.html',
+  './index.html',
   './manifest.webmanifest',
   './css/tokens.css',
   './css/pameran.css',
@@ -38,7 +38,7 @@ self.addEventListener('fetch', (e) => {
   // Navigasi: network-first, fallback cache (offline tetap bisa buka)
   if (req.mode === 'navigate') {
     e.respondWith(
-      fetch(req).catch(() => caches.match('./pameran.html'))
+      fetch(req).catch(() => caches.match('./index.html'))
     );
     return;
   }
@@ -54,7 +54,7 @@ self.addEventListener('fetch', (e) => {
             caches.open(CACHE).then((c) => c.put(req, clone));
           }
           return res;
-        }).catch(() => caches.match('./pameran.html'))
+        }).catch(() => caches.match('./index.html'))
       )
     );
   }

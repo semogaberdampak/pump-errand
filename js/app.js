@@ -1,7 +1,7 @@
 /* ============================================================
-   app.js — Logika aplikasi Pencatatan Pemeran
-   3 sesi: Persiapan → Pemeran → Penginputan
-   Pola mengikuti index.html (ScanStock): screen switching,
+   app.js — Logika aplikasi Pencatatan pameran
+   3 sesi: Persiapan → pameran → Penginputan
+   Pola mengikuti index-scanstock.html (ScanStock): screen switching,
    modal overlay, toast, tema tersimpan di localStorage.
    ============================================================ */
 (function () {
@@ -117,7 +117,7 @@
     const hariIni = new Date().toISOString().slice(0, 10);
     showModalBox('Buat Agenda Pameran Baru', `
       <div class="form-group"><label class="form-label" for="evNama">Judul pameran</label>
-        <input type="text" id="evNama" placeholder="Pemeran Buku Oktober 2026"></div>
+        <input type="text" id="evNama" placeholder="pameran Buku Oktober 2026"></div>
       <div class="form-group"><label class="form-label" for="evTanggal">Tanggal mulai</label>
         <input type="date" id="evTanggal" value="${hariIni}"></div>
       <div class="form-group"><label class="form-label" for="evTanggalSelesai">Sampai tanggal selesai
@@ -268,17 +268,17 @@
     toast('Stok ' + kode + ' disimpan', 'ok');
   };
 
-  /* ================= SESI 2 — PEMERAN ================= */
+  /* ================= SESI 2 — PAMERAN ================= */
   let hasilCariTimer = null;
 
   function renderPameran() {
     if (!butuhEvent()) return;
-    // Gerbang waktu: sesi Pemeran hanya terbuka pada rentang tanggal agenda
+    // Gerbang waktu: sesi pameran hanya terbuka pada rentang tanggal agenda
     const ev = Store.getEvents().find((e) => e.id === evtId);
     if (ev && ev.tglMulai) {
       const hariIni = new Date().toISOString().slice(0, 10);
       if (hariIni < ev.tglMulai || hariIni > (ev.tglSelesai || ev.tglMulai)) {
-        toast('Sesi Pemeran baru terbuka saat hari-H (' + ev.tanggal + ')', 'error');
+        toast('Sesi pameran baru terbuka saat hari-H (' + ev.tanggal + ')', 'error');
         goScreen('persiapan');
         return;
       }

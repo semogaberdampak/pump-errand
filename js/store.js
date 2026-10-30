@@ -1,6 +1,6 @@
 /* ============================================================
    store.js — Lapisan penyimpanan data (localStorage) untuk
-   aplikasi Pencatatan Pemeran.
+   aplikasi Pencatatan pameran.
    Semua data dinormalisasi per EVENT (pameran) agar bisa
    menjalankan beberapa pameran sekaligus tanpa saling menimpa.
 
@@ -10,7 +10,7 @@
      pameran.products      → master produk global
      pameran.<id>.stokawal    → stok awal per produk (sesi Persiapan)
      pameran.<id>.cek         → checklist persiapan
-     pameran.<id>.transaksi   → transaksi penjualan (sesi Pemeran)
+     pameran.<id>.transaksi   → transaksi penjualan (sesi pameran)
      pameran.<id>.inputan     → input manual qty (sesi Penginputan)
    ============================================================ */
 (function (global) {
@@ -64,7 +64,7 @@
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
 
-  /* ---------------- Event / Pemeran ---------------- */
+  /* ---------------- Event / pameran ---------------- */
   function getEvents() { return baca(K_EVENTS, []); }
   function setEvents(list) { return tulis(K_EVENTS, list); }
 
@@ -72,7 +72,7 @@
     const list = getEvents();
     const ev = {
       id: uid(),
-      nama: (nama || '').trim() || 'Pemeran ' + new Date().toLocaleDateString('id-ID'),
+      nama: (nama || '').trim() || 'pameran ' + new Date().toLocaleDateString('id-ID'),
       tanggal: tanggal || new Date().toISOString().slice(0, 10),
       catatan: (catatan || '').trim(),
       dibuat: new Date().toISOString(),

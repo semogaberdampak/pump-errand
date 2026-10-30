@@ -260,7 +260,12 @@ function setup() {
   sheetAturan_('LogTes', ['waktu', 'fungsi', 'hasil']);
 }
 
-// Jalankan SEKALI dari editor Apps Script (Run) untuk membuat admin pertama:
+// Jalankan SEKALI dari editor Apps Script (Run fungsi ini), lalu lihat
+// "Execution log" — kredensial admin tercetak di sana. GANTI passwordnya
+// setelah login pertama (tambah user admin baru via tab Admin, lalu hapus yang ini).
 function buatAdminPertama() {
-  addUser_({ email: 'admin@pemeran.id', nama: 'Admin', cabang: 'Pusat', pass: 'GantiSandi123', role: 'ADMIN' });
+  var email = 'admin@pameran.id';
+  var pass  = 'GantiSandi123'; // <-- ubah sebelum menjalankan
+  addUser_({ email: email, nama: 'Admin', cabang: 'Pusat', pass: pass, role: 'ADMIN' });
+  Logger.log('=== ADMIN DIBUAT ===\nEmail    : %s\nPassword : %s\n(ubah segera setelah login pertama)', email, pass);
 }

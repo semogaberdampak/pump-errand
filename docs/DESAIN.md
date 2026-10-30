@@ -1,14 +1,14 @@
-# Pencatatan Pemeran — Catatan Desain
+# Pencatatan Pameran — Catatan Desain
 
 Aplikasi web ringan (tanpa server, localStorage) untuk pencatatan saat pameran,
-mengikuti **konsep layout ScanStock** (`index.html`): layar penuh (`.screen`),
+mengikuti **konsep layout ScanStock** (`index-scanstock.html`): layar penuh (`.screen`),
 bottom bar sticky, palet & token yang sama, dark mode via `data-theme`.
 
 ## Struktur File
 
 ```
-pameran.html      → halaman utama aplikasi (4 screen: home + 3 sesi)
-css/tokens.css    → variabel desain (:root, dark) disalin dari index.html + base body
+index.html        → halaman utama aplikasi (PWA, entry point) (4 screen: home + 3 sesi)
+css/tokens.css    → variabel desain (:root, dark) disalin dari index-scanstock.html (ScanStock) + base body
 css/pameran.css   → layout & komponen khusus aplikasi pameran
 js/store.js       → lapisan data localStorage, ternormalisasi per event
 js/app.js         → logika UI ketiga sesi
@@ -22,7 +22,7 @@ docs/DESAIN.md    → dokumen ini
 - Pencatatan **stok awal** per produk → dasar perhitungan rekap.
 - Kelola master produk (modal "+ Produk").
 
-### 2. Pemeran (`scr-pameran`)
+### 2. pameran (`scr-pameran`)
 - Pencarian produk cepat (nama/kode, debounce; shortcut `/`).
 - Keranjang multi-item + qty stepper + catatan diskon per item.
 - Pembayaran Tunai/QRIS/Debit/Transfer, kembalian otomatis.
