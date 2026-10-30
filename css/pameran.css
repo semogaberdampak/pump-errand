@@ -1,5 +1,5 @@
 /* ============================================================
-   PENCATATAN PEMERAN — Layout & Komponen
+   PENCATATAN PAMERAN — Layout & Komponen
    Mengikuti konsep layout index.html (ScanStock):
    - .screen = halaman penuh, hanya .active yang tampil
    - .bottom-bar sticky di bawah
@@ -390,7 +390,7 @@ textarea { min-height: 80px; resize: vertical; }
 }
 
 /* ============================================================
-   SESI 2 — PEMERAN (transaksi)
+   SESI 2 — PAMERAN (transaksi)
    ============================================================ */
 .search-wrap { position: relative; }
 .search-wrap > input { padding-left: var(--space-6); }

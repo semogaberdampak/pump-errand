@@ -1,8 +1,8 @@
 {
-  "name": "Pencatatan Pemeran",
-  "short_name": "Pemeran",
-  "description": "Aplikasi mobile-first untuk pencatatan pameran: Persiapan, Pemeran, dan Penginputan. Data tersimpan di Google Spreadsheet via Apps Script.",
-  "start_url": "./pameran.html",
+  "name": "Pencatatan Pameran",
+  "short_name": "Pameran",
+  "description": "Aplikasi mobile-first untuk pencatatan pameran: Persiapan, Pameran, dan Penginputan. Data tersimpan di Google Spreadsheet via Apps Script.",
+  "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
