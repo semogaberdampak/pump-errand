@@ -1,0 +1,148 @@
+/* ==== Palet: hitam #000000 · abu terang #DFDEDC · abu gelap #464545 · teal #00ACAC · abu sedang #A6A7A2 ====
+   Teal dipakai sebagai LATAR (tombol) dengan teks HITAM. Untuk TEKS/garis di mode terang dipakai teal yang
+   lebih gelap, karena teal asli hanya 2,5:1 di atas kartu terang. Semua pasangan teks >= 4.5:1. */
+:root {
+  /* === Color Palette (existing) === */
+  --bg-primary: #DFDEDC;
+  --bg-card: #F3F2F1;
+  --card-bg-sub: #E8E7E5;
+  --input-bg: #FAF9F8;
+  --text-main: #000000;
+  --text-muted: #464545;
+  --border-color: #A6A7A2;
+  --border-strong: #6F706B;
+  --placeholder: #6B6C67;
+  --accent: #00ACAC;
+  --accent-hover: #009797;
+  --accent-text: #006868;
+  --accent-line: #008282;
+  --on-accent: #000000;
+  --focus: #006868;
+  --focus-ring: rgba(0, 104, 104, 0.25);
+  --btn-secondary-bg: #D4E8E7;
+  --btn-secondary-text: #005858;
+  --modal-overlay: rgba(0, 0, 0, 0.55);
+  --safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --alert: #B3261E;
+  --alert-bg: #F6DEDB;
+  --alert-border: #DDA19B;
+  --badge-bg: #C5221F;
+  --badge-text: #FFFFFF;
+
+  /* === Spacing Scale (8px base) === */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
+  /* === Border Radius === */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 12px;
+  --radius-xl: 14px;
+  --radius-2xl: 16px;
+  --radius-full: 999px;
+
+  /* === Elevation / Shadows === */
+  --shadow-1: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-2: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
+  --shadow-3: 0 8px 24px rgba(0,0,0,0.1), 0 4px 8px rgba(0,0,0,0.06);
+  --shadow-4: 0 12px 32px rgba(0,0,0,0.12), 0 6px 12px rgba(0,0,0,0.08);
+  --shadow-inset: inset 0 1px 2px rgba(0,0,0,0.05);
+
+  /* === Motion / Duration === */
+  --dur-fast: 80ms;
+  --dur-normal: 150ms;
+  --dur-slow: 250ms;
+  --dur-slower: 350ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-spring: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  --ease-in: cubic-bezier(0.4, 0, 1, 1);
+
+  /* === Typography Scale (fluid) === */
+  --text-xs: clamp(10px, 2.2vw, 11px);
+  --text-sm: clamp(12px, 2.6vw, 13px);
+  --text-base: clamp(14px, 3vw, 15px);
+  --text-md: clamp(13.5px, 3.1vw, 15px);
+  --text-lg: clamp(15px, 3.5vw, 17px);
+  --text-xl: clamp(17px, 4vw, 19px);
+  --text-2xl: clamp(20px, 4.5vw, 24px);
+  --text-3xl: clamp(24px, 5vw, 30px);
+  --font-weight-normal: 400;
+  --font-weight-medium: 500;
+  --font-weight-semibold: 600;
+  --font-weight-bold: 700;
+  --font-weight-extrabold: 800;
+
+  /* === Z-Index Scale === */
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal: 2000;
+  --z-toast: 3000;
+  --z-tooltip: 4000;
+
+  /* === Touch Targets === */
+  --touch-min: 44px;
+  --touch-comfortable: 48px;
+}
+[data-theme="dark"] {
+  --bg-primary: #000000;
+  --bg-card: #181717;
+  --card-bg-sub: #242323;
+  --input-bg: #0D0D0D;
+  --text-main: #DFDEDC;
+  --text-muted: #A6A7A2;
+  --border-color: #464545;
+  --border-strong: #7D7E79;
+  --placeholder: #8A8B86;
+  --accent: #00ACAC;
+  --accent-hover: #1FC4C4;
+  --accent-text: #00ACAC;
+  --accent-line: #00ACAC;
+  --on-accent: #000000;
+  --focus: #00ACAC;
+  --focus-ring: rgba(0, 172, 172, 0.35);
+  --btn-secondary-bg: #1B2E2E;
+  --btn-secondary-text: #2CCFCF;
+  --modal-overlay: rgba(0, 0, 0, 0.8);
+  --alert: #F28B82;
+  --alert-bg: #3A2121;
+  --alert-border: #6E3B3B;
+  --badge-bg: #C5221F;
+  --badge-text: #FFFFFF;
+
+  /* Spacing & Radius - same for both themes */
+  /* Elevation - slightly stronger in dark */
+  --shadow-1: 0 1px 3px rgba(0,0,0,0.2), 0 1px 2px rgba(0,0,0,0.15);
+  --shadow-2: 0 4px 12px rgba(0,0,0,0.25), 0 2px 4px rgba(0,0,0,0.15);
+  --shadow-3: 0 8px 24px rgba(0,0,0,0.3), 0 4px 8px rgba(0,0,0,0.2);
+  --shadow-4: 0 12px 32px rgba(0,0,0,0.35), 0 6px 12px rgba(0,0,0,0.25);
+  --shadow-inset: inset 0 1px 2px rgba(255,255,255,0.05);
+}
+
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* ==== Base halaman pameran ==== */
+body {
+  margin: 0;
+  background: var(--bg-primary);
+  color: var(--text-main);
+  font-size: var(--text-base);
+  line-height: 1.45;
+}
+
+.app-header { border-bottom: 1px solid var(--border-color); background: var(--bg-card); }
+.app-header-inner {
+  display: flex; align-items: center; gap: var(--space-3);
+  max-width: 540px; margin: 0 auto; padding: var(--space-3) var(--space-4);
+}
+.app-brand { font-weight: 800; font-size: var(--text-lg); flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
