@@ -3,6 +3,7 @@
    (paste di Extensions → Apps Script pada spreadsheet Anda,
     lalu Deploy → New deployment → Web app,
     Execute as: Me, Who has access: Anyone)
+   Keamanan: sesi di CacheService, cabang/user dari sesi, login dibatasi 5x gagal/15 menit.
 
    STRUKTUR SPREADSHEET (dibuat otomatis oleh setup()):
      Users        : email | nama | cabang | passHash | salt | role | aktif | dibuat
@@ -15,86 +16,88 @@
      LogTes       : waktu | fungsi | hasil  (sheet tes untuk Admin)
    ============================================================ */
 
-var K_SESI = {}; // token → {email, role, _exp}
+var SESI_DETIK_ = 21600;        // masa sesi; batas maksimum CacheService = 6 jam
+var LOGIN_MAKS_GAGAL_ = 5;      // gagal berturut-turut per email
+var LOGIN_KUNCI_DETIK_ = 900;   // dikunci 15 menit
 
-/* ============================================================
-   KONFIGURASI — isi SPREADSHEET_ID jika script dipakai standalone
-   (Files → New → Google Apps Script project). Jika script dibuat
-   lewat Extensions → Apps Script (container-bound), biarkan kosong;
-   spreadsheet aktif akan dipakai otomatis.
-   ============================================================ */
-var SPREADSHEET_ID = ''; // contoh: '1AbCdEfGhIjKlMnOpQrStUvWxYz1234567890'
-
-function doGet(e) { return handle_(e); }
+// GET tidak dipakai (token/sandi bisa tercatat di URL). Semua aksi lewat POST.
+function doGet() { return json_({ ok: false, error: 'Gunakan POST' }); }
 function doPost(e) { return handle_(e); }
+
+function json_(obj) {
+  return ContentService.createTextOutput(JSON.stringify(obj))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+// Klien mengirim body text/plain berisi "a=1&b=2". Apps Script hanya mengisi
+// e.parameter untuk form-urlencoded, jadi body diurai sendiri sebagai pengaman.
+function param_(e) {
+  var p = {}, k;
+  for (k in (e.parameter || {})) p[k] = e.parameter[k];
+  var raw = e.postData && e.postData.contents;
+  if (raw && !p.action) {
+    raw.split('&').forEach(function (kv) {
+      var i = kv.indexOf('=');
+      if (i < 0) return;
+      p[decodeURIComponent(kv.slice(0, i).replace(/\+/g, ' '))] =
+        decodeURIComponent(kv.slice(i + 1).replace(/\+/g, ' '));
+    });
+  }
+  return p;
+}
 
 function handle_(e) {
   var out;
   try {
-    var action = e.parameter.action || '';
-    var payload = JSON.parse(e.parameter.payload || '{}');
-    var data = route_(action, payload, e.parameter.token || '');
+    var q = param_(e);
+    var data = route_(q.action || '', JSON.parse(q.payload || '{}'), q.token || '');
     out = { ok: true, data: data };
   } catch (err) {
     out = { ok: false, error: String(err && err.message || err), code: (err && err.code) || '' };
   }
-  return ContentService.createTextOutput(JSON.stringify(out))
-    .setMimeType(ContentService.MimeType.JSON);
+  return json_(out);
 }
 
+var AKSI_ADMIN_ = ['listUsers', 'addUser', 'deleteUser', 'test', 'clearLog'];
+
 function route_(action, p, token) {
+  if (action === 'login') return login_(p.email, p.pass);
+  var s = requireLogin_(token);
+  if (AKSI_ADMIN_.indexOf(action) >= 0 && s.role !== 'ADMIN') throw new Error('Halaman khusus Admin');
+  p = paksaIdentitas_(p, s);
   switch (action) {
-    case 'login': return login_(p.email, p.pass);
-    case 'listUsers': requireAdmin_(token); return listUsers_();
-    case 'addUser': requireAdmin_(token); return addUser_(p);
-    case 'deleteUser': requireAdmin_(token); return deleteUser_(p.email);
-    case 'test': requireAdmin_(token); return runTest_(p.name);
-    case 'clearLog': requireAdmin_(token); return clearLog_();
-    case 'getMasterProduk': requireLogin_(token); return getMasterProduk_();
-    case 'savePrepScan': requireLogin_(token); return savePrepScan_(p);
-    case 'getPrepScans': requireLogin_(token); return getPrepScans_(p);
-    case 'saveTransaksi': requireLogin_(token); return saveTransaksi_(p);
-    case 'getTransaksiList': requireLogin_(token); return getTransaksiList_(p);
-    case 'tutupSetoran': requireLogin_(token); return tutupSetoran_(p);
-    case 'saveInputan': requireLogin_(token); return saveInputan_(p);
-    case 'saveRekap': requireLogin_(token); return saveRekap_(p);
+    case 'listUsers': return listUsers_();
+    case 'addUser': return addUser_(p);
+    case 'deleteUser': return deleteUser_(p.email);
+    case 'test': return runTest_(p.name);
+    case 'clearLog': return clearLog_();
+    case 'getMasterProduk': return getMasterProduk_();
+    case 'savePrepScan': return savePrepScan_(p);
+    case 'getPrepScans': return getPrepScans_(p);
+    case 'saveTransaksi': return saveTransaksi_(p);
+    case 'getTransaksiList': return getTransaksiList_(p);
+    case 'tutupSetoran': return tutupSetoran_(p);
+    case 'saveInputan': return saveInputan_(p);
+    case 'saveRekap': return saveRekap_(p);
     default: throw new Error('Aksi tidak dikenal: ' + action);
   }
 }
 
+// Identitas & cabang SELALU dari sesi server, bukan dari kiriman klien.
+// Hanya ADMIN yang boleh menyebut cabang lain.
+function paksaIdentitas_(p, s) {
+  p = p || {};
+  p.user = s.email;
+  if (s.role !== 'ADMIN' || !p.cabang) p.cabang = s.cabang;
+  return p;
+}
+
 /* ---------------- Util sheet ---------------- */
-
-/**
- * Kembalikan objek Spreadsheet yang benar, dari berbagai sumber:
- * 1. SPREADSHEET_ID yang di-hardcode di atas
- * 2. Active spreadsheet (container-bound / sedang dibuka manual)
- * 3. Script Properties key 'SPREADSHEET_ID' (diatur via setSpreadsheetId)
- * Catatan: TIDAK memakai cache antar-panggilan, karena setiap request
- * web app adalah eksekusi terpisah dan getActiveSpreadsheet() bisa null
- * pada panggilan pertama.
- */
-function ss_() {
-  var id = SPREADSHEET_ID || '';
-  var active = SpreadsheetApp.getActiveSpreadsheet(); // null jika standalone
-  if (!id && active) return active;
-  if (!id) {
-    try { id = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || ''; } catch (e) {}
-  }
-  if (!id) throw new Error('SPREADSHEET_ID belum diatur. Isi variabel SPREADSHEET_ID di bagian atas script, jalankan setSpreadsheetId("ID_ANDA"), atau tempel script lewat Extensions → Apps Script pada spreadsheet target.');
-  if (active && active.getId() === id) return active;
-  return SpreadsheetApp.openById(id);
-}
-
-/** Helper sekali jalan: simpan ID spreadsheet ke Script Properties. */
-function setSpreadsheetId(id) {
-  PropertiesService.getScriptProperties().setProperty('SPREADSHEET_ID', id);
-  Logger.log('SPREADSHEET_ID tersimpan: ' + id);
-}
+function ss_() { return SpreadsheetApp.getActiveSpreadsheet(); }
 
 function sheetAturan_(nama, header) {
-  var s = ss_();
-  var sh = s.getSheetByName(nama);
-  if (!sh) sh = s.insertSheet(nama);
+  var sh = ss_().getSheetByName(nama);
+  if (!sh) sh = ss_().insertSheet(nama);
   if (sh.getLastRow() === 0) {
     sh.appendRow(header);
     sh.getRange(1, 1, 1, header.length).setFontWeight('bold');
@@ -118,31 +121,41 @@ function namaSheetData_(event, tgl, cabang) {
 /* ---------------- Auth / RBAC ---------------- */
 function login_(email, pass) {
   email = String(email || '').trim().toLowerCase();
+  pass = String(pass || '');
+  var cache = CacheService.getScriptCache();
+  var kunci = 'gagal:' + email.slice(0, 100);
+  var gagal = Number(cache.get(kunci) || 0);
+  if (gagal >= LOGIN_MAKS_GAGAL_) {
+    throw new Error('Terlalu banyak percobaan. Coba lagi ' + Math.round(LOGIN_KUNCI_DETIK_ / 60) + ' menit lagi');
+  }
   var sh = sheetAturan_('Users', ['email', 'nama', 'cabang', 'passHash', 'salt', 'role', 'aktif', 'dibuat']);
   var rows = sh.getDataRange().getValues();
   for (var i = 1; i < rows.length; i++) {
     if (String(rows[i][0]).toLowerCase() !== email) continue;
+    if (hashPass_(pass, rows[i][4]) !== rows[i][3]) break;
     if (rows[i][6] === false || rows[i][6] === 'FALSE') throw new Error('Akun dinonaktifkan');
-    var cek = hashPass_(pass, rows[i][4]);
-    if (cek !== rows[i][3]) throw new Error('Kata sandi salah');
+    cache.remove(kunci);
     var user = { email: rows[i][0], nama: rows[i][1], cabang: rows[i][2], role: rows[i][5] };
-    var token = Utilities.getUuid();
-    K_SESI[token] = { email: user.email, role: user.role, _exp: Date.now() + 12 * 3600e3 };
     catatLog_('login', user.email + ' (' + user.role + ') OK');
-    return { user: user, session: { token: token, user: user } };
+    return { user: user, session: { token: buatSesi_(user), user: user } };
   }
-  throw new Error('User tidak terdaftar — minta Admin membuat akun Cabang/User');
+  cache.put(kunci, String(gagal + 1), LOGIN_KUNCI_DETIK_);
+  // Pesan sama untuk email tak terdaftar & sandi salah (tidak membocorkan daftar akun)
+  throw new Error('Email atau kata sandi salah');
+}
+
+// Sesi disimpan di CacheService: variabel global Apps Script tidak bertahan antar request.
+function buatSesi_(user) {
+  var token = Utilities.getUuid() + Utilities.getUuid();
+  CacheService.getScriptCache().put('sesi:' + token,
+    JSON.stringify({ email: user.email, role: user.role, cabang: user.cabang }), SESI_DETIK_);
+  return token;
 }
 
 function requireLogin_(token) {
-  var s = K_SESI[token];
-  if (!s || s._exp < Date.now()) throw new Error('Sesi kedaluwarsa, silakan login ulang');
-  return s;
-}
-function requireAdmin_(token) {
-  var s = requireLogin_(token);
-  if (s.role !== 'ADMIN') throw new Error('Halaman khusus Admin');
-  return s;
+  var raw = token && CacheService.getScriptCache().get('sesi:' + token);
+  if (!raw) throw new Error('Sesi kedaluwarsa, silakan login ulang');
+  return JSON.parse(raw);
 }
 
 /* ---------------- Manajemen Cabang/User (dinamis) ---------------- */
@@ -295,12 +308,17 @@ function setup() {
   sheetAturan_('LogTes', ['waktu', 'fungsi', 'hasil']);
 }
 
-// Jalankan SEKALI dari editor Apps Script (Run fungsi ini), lalu lihat
-// "Execution log" — kredensial admin tercetak di sana. GANTI passwordnya
-// setelah login pertama (tambah user admin baru via tab Admin, lalu hapus yang ini).
+// Jalankan SEKALI dari editor Apps Script (pilih fungsi ini lalu Run).
+// 1) Ganti `email` dan `pass` di bawah (pass min. 10 karakter) HANYA di editor Apps Script.
+// 2) Run -> akun ADMIN masuk ke sheet Users (sandi disimpan sebagai hash).
+// 3) Kembalikan `pass` ke placeholder dan simpan, agar sandi tidak tertinggal di kode.
+// Jangan commit sandi sungguhan ke GitHub.
 function buatAdminPertama() {
-  var email = 'admin@pameran.id';
-  var pass  = 'GantiSandi123'; // <-- ubah sebelum menjalankan
+  var email = 'admin@pameran.id';              // <-- ganti dengan email Anda
+  var pass  = 'GANTI_DENGAN_SANDI_KUAT';       // <-- ganti sebelum Run
+  if (pass === 'GANTI_DENGAN_SANDI_KUAT' || pass.length < 10) {
+    throw new Error('Ganti dulu nilai `pass` (min. 10 karakter) sebelum menjalankan fungsi ini.');
+  }
   addUser_({ email: email, nama: 'Admin', cabang: 'Pusat', pass: pass, role: 'ADMIN' });
-  Logger.log('=== ADMIN DIBUAT ===\nEmail    : ' + email + '\nPassword : ' + pass + '\n(ubah segera setelah login pertama)');
+  Logger.log('Admin dibuat: %s (sandi tidak dicetak). Kembalikan `pass` ke placeholder lalu simpan.', email);
 }

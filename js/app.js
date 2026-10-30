@@ -49,12 +49,6 @@
       const s = GAS.getSession();
       if (!s || !s.user || s.user.role !== 'ADMIN') { toast('Khusus Admin', 'error'); return; }
     }
-    // Gate RBAC: layar selain login hanya untuk sesi valid
-    if (nama !== 'login' && !GAS.getSession()) {
-      $('scr-login').classList.add('active');
-      toast('Silakan masuk terlebih dahulu', 'error');
-      return;
-    }
     SCREENS.forEach((sc) => {
       const el = $('scr-' + sc);
       if (el) el.classList.toggle('active', sc === nama);
@@ -62,7 +56,6 @@
     document.querySelectorAll('.seg-nav button[data-screen]').forEach((b) => {
       b.classList.toggle('aktif', b.dataset.screen === nama);
     });
-    if (nama === 'home') renderHome();
     if (nama === 'persiapan') renderPersiapan();
     if (nama === 'pameran') renderPameran();
     if (nama === 'penginputan') renderPenginputan();
@@ -74,16 +67,9 @@
   function terapkanTheme(dark) {
     document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
     try { localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light'); } catch (e) {}
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) meta.setAttribute('content', dark ? '#000000' : '#DFDEDC');
   }
-  window.toggleTheme = function (btn) {
+  window.toggleTheme = function () {
     const dark = document.documentElement.getAttribute('data-theme') !== 'dark';
-    // Animasi kilau singkat saat toggle (efek "wow" kecil, tetap hormati reduced-motion)
-    if (btn && btn.classList) {
-      btn.classList.add('tt-spin');
-      setTimeout(() => btn.classList.remove('tt-spin'), 500);
-    }
     terapkanTheme(dark);
   };
 
@@ -637,17 +623,8 @@
   function tampilkanApp(user) {
     sesiUser = user;
     $('scr-login').classList.remove('active');
-    // Tampilkan navigasi bawah & tombol logout setelah login (sesuai role)
-    const bar = $('bottomBar');
-    if (bar) bar.hidden = false;
-    document.body.classList.add('logged-in');
-    const btnOut = $('btnLogoutHeader');
-    if (btnOut) btnOut.style.display = '';
     const navAdmin = $('navAdminBtn');
-    if (navAdmin) navAdmin.hidden = user.role !== 'ADMIN';
-    // Grid nav: 5 kolom bila Admin tampil, 4 bila tidak
-    const seg = $('segNav');
-    if (seg) seg.classList.toggle('with-admin', !!navAdmin && !navAdmin.hidden);
+    if (navAdmin) navAdmin.style.display = user.role === 'ADMIN' ? '' : 'none';
     const chip = $('admRoleChip');
     if (chip) chip.textContent = user.role;
     const urlInput = $('gasUrl');
@@ -660,10 +637,6 @@
   window.aksiLogin = async function (e) {
     e.preventDefault();
     const btn = $('btnLogin');
-    // Sinkronkan URL bila user mengetik langsung di field login
-    const vL = $('loginGasUrl') && $('loginGasUrl').value.trim();
-    if (vL && /^https:\/\/script\.google\.com\//.test(vL)) GAS.setUrl(vL);
-    if (!GAS.getUrl()) { toast('Isi URL Web App dulu (Pengaturan koneksi)', 'error'); btn.disabled = false; btn.textContent = 'Masuk'; return false; }
     btn.disabled = true; btn.textContent = 'Memeriksa…';
     try {
       const user = await GAS.login($('loginEmail').value.trim(), $('loginPass').value);
@@ -682,15 +655,6 @@
     location.reload();
   };
 
-  // Konfirmasi logout via modal umum — mobile-friendly, tidak pakai confirm() bawaan
-  window.konfirmasiLogout = function () {
-    showModalBox('Keluar dari aplikasi?',
-      '<p class="rekap-note">Sesi login Anda akan diakhiri. Data yang tersimpan lokal tetap aman dan tersinkron dengan Google Spreadsheet.</p>',
-      '<div class="btn-row" style="gap:8px">' +
-      '<button class="btn btn-secondary" style="flex:1" onclick="tutupModal()">Batal</button>' +
-      '<button class="btn btn-danger" style="flex:1" onclick="keluarLogin()">Ya, Keluar</button></div>');
-  };
-
   /* Tarik master produk dari sheet MasterProduk (tanpa data dummy). */
   async function tarikMasterProduk() {
     try {
@@ -707,19 +671,6 @@
   }
 
   /* ================= HALAMAN ADMIN ================= */
-  window.simpanGasUrl = function () {
-    GAS.setUrl($('gasUrl').value);
-    toast('URL Apps Script disimpan');
-  };
-
-  window.simpanGasUrlLogin = function () {
-    const v = $('loginGasUrl').value.trim();
-    if (!/^https:\/\/script\.google\.com\//.test(v)) { toast('URL harus dari script.google.com', 'error'); return; }
-    GAS.setUrl(v);
-    const adm = $('gasUrl'); if (adm) adm.value = v;
-    toast('URL tersimpan — silakan Masuk');
-  };
-
   function catatLog(txt) {
     const box = $('admLog');
     box.textContent = new Date().toLocaleTimeString('id-ID') + ' ▸ ' + txt + '\n' + box.textContent;
@@ -781,9 +732,9 @@
 
   /* ================= INIT ================= */
   document.addEventListener('DOMContentLoaded', function () {
-    // Isi field URL GAS (login & admin) dari nilai tersimpan/DEFAULT/?gas=
+    // Tampilkan URL Web App (dikunci di js/gas.js) pada halaman Admin, hanya-baca
     const urlNow = GAS.getUrl();
-    ['loginGasUrl', 'gasUrl'].forEach((idEl) => {
+    ['gasUrl'].forEach((idEl) => {
       const el = $(idEl);
       if (el && urlNow) el.value = urlNow;
     });
@@ -793,14 +744,14 @@
     if (s && s.user) tampilkanApp(s.user);
     else $('scr-login').classList.add('active');
 
-    // Restore event aktif (hanya bila sudah login — jangan membocorkan data di layar login)
+    // Restore event aktif
     const id = Store.getActiveId();
-    if (s && s.user && id && Store.getEvents().some((e) => e.id === id)) {
+    if (id && Store.getEvents().some((e) => e.id === id)) {
       evtId = id;
       const ev = Store.getActiveEvent();
       $('homeEventInfo').textContent = ev.nama + ' · ' + ev.tanggal;
     }
-    if (s && s.user) renderHome();
+    renderHome();
 
     // Shortcut pencarian: "/" fokus ke input cari
     document.addEventListener('keydown', function (e) {
