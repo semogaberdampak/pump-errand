@@ -673,6 +673,12 @@ textarea { min-height: 80px; resize: vertical; }
 .login-title { font-size: 1.25rem; text-align: center; margin: 0; }
 .login-sub { font-size: .875rem; color: var(--muted, #7a7772); text-align: center; margin: 0 0 6px; }
 .login-hint { font-size: .75rem; color: var(--muted, #7a7772); text-align: center; margin: 4px 0 0; }
+.login-adv { margin-top: 12px; border: 1px solid var(--border, #e6e2db); border-radius: var(--radius-md, 12px); padding: 8px 12px; overflow: hidden; }
+.login-adv summary { font-size: .8rem; font-weight: 600; color: var(--muted, #7a7772); cursor: pointer; list-style: none; }
+.login-adv summary::-webkit-details-marker { display: none; }
+.login-adv summary::after { content: ' ⚙'; }
+.login-adv[open] summary { margin-bottom: 8px; }
+.login-adv input[type="url"] { width: 100%; min-width: 0; }
 
 .field { display: block; margin-bottom: 12px; min-width: 0; }
 .field > span {
