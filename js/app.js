@@ -96,9 +96,12 @@
             ${e.catatan ? '<span>· ' + esc(e.catatan) + '</span>' : ''}
           </div>
           <div class="btn-row" style="margin-top:8px">
-            <button class="btn btn-sm ${aktif ? 'btn-secondary' : 'btn-primary'}" onclick="bukaEvent('${e.id}')">${aktif ? 'Lanjut' : 'Buka'}</button>
-            <button class="btn btn-sm btn-ghost" onclick="selesaiEvent('${e.id}')">${e.selesai ? 'Buka lagi' : 'Tandai selesai'}</button>
-            <button class="btn btn-sm btn-danger" onclick="hapusEvent('${e.id}')">Hapus</button>
+            <button class="btn btn-pill btn-sm ${aktif ? 'btn-secondary' : 'btn-primary'}" onclick="bukaEvent('${e.id}')">${aktif ? 'Lanjut' : 'Buka'}</button>
+            <button class="btn btn-pill btn-sm btn-ghost" onclick="selesaiEvent('${e.id}')">${e.selesai ? 'Buka lagi' : 'Selesai'}</button>
+            <button class="btn btn-pill btn-sm btn-danger" onclick="hapusEvent('${e.id}')" aria-label="Hapus pameran">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+              Hapus
+            </button>
           </div>
         </div>`;
       })
@@ -338,7 +341,7 @@
             <span class="cart-nama">${esc(k.produk.nama)} × ${k.qty}</span>
             <span class="cart-sub">${esc(k.produk.kode)}${k.catatan ? ' · ' + esc(k.catatan) : ''}</span>
           </div>
-          <strong>${rupiah(k.produk.harga * k.qty)}</strong>
+          <strong class="cart-price">${rupiah(k.produk.harga * k.qty)}</strong>
           <button class="cart-remove" onclick="hapusKeranjang(${i})" aria-label="Hapus">×</button>
         </li>`).join('') + '</ul>';
     }
@@ -399,7 +402,7 @@
           <span class="chip ${t.metode === 'TUNAI' ? 'chip-ok' : 'chip-warn'}">${esc(t.metode)}</span>
           <span>${t.items.map((i) => esc(i.nama) + '×' + i.qty).join(', ')}</span>
         </div>
-        <button class="btn btn-sm btn-danger" style="margin-top:6px" onclick="hapusTransaksi('${t.id}')">Hapus</button>
+        <button class="btn btn-pill btn-sm btn-danger" style="margin-top:8px" onclick="hapusTransaksi('${t.id}')">Hapus</button>
       </div>`).join('') + '</div>';
   }
 
@@ -466,7 +469,7 @@
           <span class="data-time">${new Date(x.waktu).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
         </div>
         <div class="data-meta"><span class="chip">${esc(x.kategori)}</span>${x.catatan ? '<span>' + esc(x.catatan) + '</span>' : ''}</div>
-        <button class="btn btn-sm btn-danger" style="margin-top:6px" onclick="hapusInput('${x.id}')">Hapus</button>
+        <button class="btn btn-pill btn-sm btn-danger" style="margin-top:8px" onclick="hapusInput('${x.id}')">Hapus</button>
       </div>`).join('') + '</div>';
   }
 
@@ -562,9 +565,9 @@
     if (!butuhEvent()) return;
     renderRekap();
     const rows = window._rekapRows || [];
-    const html = '<div style="overflow-x:auto"><table style="width:100%;border-collapse:collapse;font-size:var(--text-xs)">' +
-      rows.map((r, i) => '<tr>' + r.map((c) =>
-        (i === 0 ? '<th style="border-bottom:2px solid var(--border-strong);padding:4px;text-align:left">' : '<td style="border-bottom:1px dashed var(--border-color);padding:4px">') + esc(c) + '</t' + (i === 0 ? 'h' : 'd') + '>').join('') + '</tr>').join('') +
+    const html = '<div style="overflow-x:auto"><table class="rekap-table">' +
+      rows.map((r, i) => '<tr>' + r.map((c, j) =>
+        (i === 0 ? '<th' : '<td') + (j > 0 ? ' class="num"' : '') + '>' + esc(c) + '</t' + (i === 0 ? 'h' : 'd') + '>').join('') + '</tr>').join('') +
       '</table></div>';
     showModalBox('Tabel Rekap', html);
   };
