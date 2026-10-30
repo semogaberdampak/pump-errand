@@ -4,7 +4,7 @@
    untuk aset statis. Saat offline, halaman tetap terbuka dari
    cache; panggilan Apps Script gagal dengan pesan jelas.
    ============================================================ */
-const CACHE = 'pameran-v3';
+const CACHE = 'pameran-v2';
 const ASSETS = [
   './',
   './index.html',

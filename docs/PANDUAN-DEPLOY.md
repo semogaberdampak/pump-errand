@@ -19,6 +19,10 @@ Di editor Apps Script:
 1. Pilih fungsi **`setup`** pada dropdown fungsi, klik **Run**.
    - Izinkan akses (Authorize) saat diminta.
    - Fungsi ini membuat sheet: `Users`, `MasterProduk`, `LogTes`.
+   - ⚠️ Jika muncul error **"SPREADSHEET_ID belum diatur"**, berarti script Anda berjalan **standalone** (dibuat dari *New → Google Apps Script*, bukan dari dalam spreadsheet). Solusi (pilih salah satu):
+     - **Cara A (disarankan):** buat script dari dalam spreadsheet — buka Spreadsheet → **Extensions → Apps Script** → paste kode. Dengan begitu `getActiveSpreadsheet()` otomatis menunjuk spreadsheet yang benar dan variabel ID tidak perlu diisi.
+     - **Cara B:** salin **ID spreadsheet** dari URL (`https://docs.google.com/spreadsheets/d/`**`ID_INI`**`/edit`), lalu isi di baris `var SPREADSHEET_ID = '';` paling atas kode → simpan → jalankan `setup` lagi.
+     - **Cara C:** jalankan sekali fungsi `setSpreadsheetId("ID_INI")` (ID tersimpan permanen di *Script Properties*: Project settings → Script properties → Copy value), lalu jalankan `setup`.
 2. Pilih fungsi **`buatAdminPertama`**, klik **Run**.
    - Email & password admin default muncul di **Execution log / View log**.
    - Kredensial bawaan di dalam fungsi `buatAdminPertama()` (lihat `gas/rbac-apps-script.gs` baris ±266):
@@ -81,5 +85,5 @@ Yang **tidak** perlu diubah: menu **"Project Properties"** maupun *script proper
 |---|---|---|
 | Respons HTML alih-alih JSON (`Respons bukan JSON (cek deploy /exec)`) | Belum deploy versi baru / URL bukan `/exec` | Ulangi langkah 2, pastikan URL berakhiran `/exec` |
 | `Access denied` / redirect login Google | "Who has access" bukan `Anyone` | Ubah setelan deployment |
-| Data tidak masuk sheet | Nama sheet event bentrok / spreadsheet salah | Cek `LogTes`, pastikan `SPREADSHEET_ID_` (bila diisi manual) menunjuk spreadsheet yang benar — secara default skrip memakai spreadsheet tempat ia di-bound |
+| Data tidak masuk sheet | Nama sheet event bentrok / spreadsheet salah | Cek `LogTes`, pastikan `SPREADSHEET_ID` (variabel di bagian atas skrip, atau jalankan `setSpreadsheetId("ID")` sekali — tersimpan di Script Properties) menunjuk spreadsheet yang benar — secara default skrip memakai spreadsheet tempat ia di-bound |
 | Login gagal padahal user benar | Password di-hash SHA-256+salt; user dibuat manual di sheet tanpa salt | Buat user lewat tab Admin, bukan ketik manual di sheet |
