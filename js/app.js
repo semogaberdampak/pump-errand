@@ -637,10 +637,6 @@
   window.aksiLogin = async function (e) {
     e.preventDefault();
     const btn = $('btnLogin');
-    // Sinkronkan URL bila user mengetik langsung di field login
-    const vL = $('loginGasUrl') && $('loginGasUrl').value.trim();
-    if (vL && /^https:\/\/script\.google\.com\//.test(vL)) GAS.setUrl(vL);
-    if (!GAS.getUrl()) { toast('Isi URL Web App dulu (Pengaturan koneksi)', 'error'); btn.disabled = false; btn.textContent = 'Masuk'; return false; }
     btn.disabled = true; btn.textContent = 'Memeriksa…';
     try {
       const user = await GAS.login($('loginEmail').value.trim(), $('loginPass').value);
@@ -675,19 +671,6 @@
   }
 
   /* ================= HALAMAN ADMIN ================= */
-  window.simpanGasUrl = function () {
-    GAS.setUrl($('gasUrl').value);
-    toast('URL Apps Script disimpan');
-  };
-
-  window.simpanGasUrlLogin = function () {
-    const v = $('loginGasUrl').value.trim();
-    if (!/^https:\/\/script\.google\.com\//.test(v)) { toast('URL harus dari script.google.com', 'error'); return; }
-    GAS.setUrl(v);
-    const adm = $('gasUrl'); if (adm) adm.value = v;
-    toast('URL tersimpan — silakan Masuk');
-  };
-
   function catatLog(txt) {
     const box = $('admLog');
     box.textContent = new Date().toLocaleTimeString('id-ID') + ' ▸ ' + txt + '\n' + box.textContent;
@@ -749,9 +732,9 @@
 
   /* ================= INIT ================= */
   document.addEventListener('DOMContentLoaded', function () {
-    // Isi field URL GAS (login & admin) dari nilai tersimpan/DEFAULT/?gas=
+    // Tampilkan URL Web App (dikunci di js/gas.js) pada halaman Admin, hanya-baca
     const urlNow = GAS.getUrl();
-    ['loginGasUrl', 'gasUrl'].forEach((idEl) => {
+    ['gasUrl'].forEach((idEl) => {
       const el = $(idEl);
       if (el && urlNow) el.value = urlNow;
     });

@@ -92,9 +92,11 @@ img, svg { max-width: 100%; }
   text-transform: uppercase;
   letter-spacing: 0.3px;
 }
-input[type="text"], input[type="number"], input[type="date"], select, textarea {
+input[type="text"], input[type="number"], input[type="date"], input[type="email"], input[type="password"], input[type="url"], select, textarea {
   width: 100%;
   box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
   min-height: 48px;
   padding: var(--space-2) var(--space-3);
   font-size: var(--text-md);
@@ -102,6 +104,10 @@ input[type="text"], input[type="number"], input[type="date"], select, textarea {
   color: var(--text-main);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md);
+}
+@media (max-width: 400px) {
+  input[type="text"], input[type="number"], input[type="date"], input[type="email"],
+  input[type="password"], input[type="url"], select, textarea { font-size: 16px; } /* cegah zoom iOS */
 }
 input:focus-visible, select:focus-visible, textarea:focus-visible {
   outline: 2px solid var(--focus);
@@ -252,6 +258,10 @@ textarea { min-height: 80px; resize: vertical; }
   padding: 4px;
   box-shadow: var(--shadow-2);
 }
+.seg-nav.with-admin { grid-template-columns: repeat(5, 1fr); }
+/* Bottom bar disembunyikan total pada layar login */
+.bottom-bar[hidden] { display: none !important; }
+body:not(.logged-in) .bottom-bar { display: none; }
 .seg-nav button {
   position: relative;
   display: flex;
@@ -319,6 +329,79 @@ textarea { min-height: 80px; resize: vertical; }
 .icon-btn .ic-sun { display: none; }
 [data-theme="dark"] .icon-btn .ic-sun { display: block; }
 [data-theme="dark"] .icon-btn .ic-moon { display: none; }
+
+/* ---- Header actions & theme switch animasi ---- */
+.header-actions { display: flex; align-items: center; gap: var(--space-2); flex-shrink: 0; }
+.icon-btn-danger:hover { color: #B42318; border-color: #E7A69F; background: #FBEEEC; }
+[data-theme="dark"] .icon-btn-danger:hover { color: #F28B82; border-color: #6E3B3B; background: #3A2121; }
+
+.theme-toggle {
+  position: relative;
+  width: 58px; height: 32px; min-width: 58px;
+  border-radius: var(--radius-full);
+  border: 1px solid var(--border-color);
+  background: linear-gradient(180deg, #EFEDEA, #DFDEDC);
+  cursor: pointer;
+  padding: 0;
+  box-shadow: inset 0 1px 3px rgba(0,0,0,.08);
+  transition: background .45s ease, border-color .45s ease;
+  -webkit-tap-highlight-color: transparent;
+}
+[data-theme="dark"] .theme-toggle {
+  background: linear-gradient(180deg, #1B2A4A, #10131F);
+  border-color: #34507E;
+}
+.tt-thumb {
+  position: absolute;
+  top: 3px; left: 3px;
+  width: 24px; height: 24px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #FFE9A8, #FFC24B 55%, #F59E0B);
+  color: #7C4A03;
+  display: grid; place-items: center;
+  box-shadow: 0 2px 8px rgba(245,158,11,.45), inset 0 1px 0 rgba(255,255,255,.6);
+  transition: transform .5s cubic-bezier(.5,1.6,.4,1), background .45s ease, box-shadow .45s ease;
+}
+[data-theme="dark"] .tt-thumb {
+  transform: translateX(26px) rotate(215deg);
+  background: radial-gradient(circle at 65% 35%, #F8FAFC, #CBD5E1 60%, #94A3B8);
+  color: #334155;
+  box-shadow: 0 2px 10px rgba(148,163,184,.35), inset 0 1px 0 rgba(255,255,255,.7);
+}
+.tt-thumb svg { position: absolute; transition: opacity .35s ease; }
+.tt-thumb .ic-sun { opacity: 1; }
+.tt-thumb .ic-moon { opacity: 0; }
+[data-theme="dark"] .tt-thumb .ic-sun { opacity: 0; }
+[data-theme="dark"] .tt-thumb .ic-moon { opacity: 1; }
+.theme-toggle:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+.theme-toggle:active .tt-thumb { transform: scale(.92); }
+[data-theme="dark"] .theme-toggle:active .tt-thumb { transform: translateX(26px) rotate(215deg) scale(.92); }
+.theme-toggle.tt-spin .tt-thumb { animation: ttKilau .5s ease; }
+@keyframes ttKilau {
+  0%   { filter: brightness(1); }
+  40%  { filter: brightness(1.5) saturate(1.3); }
+  100% { filter: brightness(1); }
+}
+/* Bintang kecil muncul di track saat dark mode */
+.theme-toggle::before {
+  content: '';
+  position: absolute;
+  left: 9px; top: 50%;
+  width: 3px; height: 3px;
+  border-radius: 50%;
+  background: #E2E8F0;
+  box-shadow: 9px -7px 0 -1px #E2E8F0, 14px 3px 0 -1px #CBD5E1, 5px 6px 0 -1px #CBD5E1;
+  opacity: 0;
+  transform: translateY(-50%) scale(.5);
+  transition: opacity .5s ease .15s, transform .5s ease .15s;
+}
+[data-theme="dark"] .theme-toggle::before { opacity: .9; transform: translateY(-50%) scale(1); }
+@media (max-width: 380px) {
+  .theme-toggle { width: 50px; height: 30px; min-width: 50px; }
+  .tt-thumb { width: 22px; height: 22px; }
+  [data-theme="dark"] .tt-thumb { transform: translateX(20px) rotate(215deg); }
+  [data-theme="dark"] .theme-toggle:active .tt-thumb { transform: translateX(20px) rotate(215deg) scale(.92); }
+}
 
 /* ============================================================
    SESI 1 — PERSIAPAN
@@ -528,7 +611,9 @@ textarea { min-height: 80px; resize: vertical; }
   width: 100%;
   max-width: 420px;
   max-height: 90vh;
+  max-height: min(90dvh, 640px);
   overflow-y: auto;
+  overscroll-behavior: contain;
   background: var(--bg-card);
   border-radius: var(--radius-xl);
   padding: var(--space-4);
@@ -536,7 +621,16 @@ textarea { min-height: 80px; resize: vertical; }
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+  animation: modalIn .3s cubic-bezier(.2,.9,.3,1.15);
 }
+@keyframes modalIn {
+  from { opacity: 0; transform: translateY(18px) scale(.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.modal-title { word-break: break-word; overflow-wrap: anywhere; }
+#modalIsi, #modalKaki { min-width: 0; max-width: 100%; }
+#modalIsi > * { max-width: 100%; }
+#modalIsi input, #modalIsi select, #modalIsi textarea { max-width: 100%; }
 .modal-title { font-size: var(--text-lg); font-weight: 800; margin: 0; overflow-wrap: anywhere; }
 .modal-body { font-size: var(--text-sm); color: var(--text-muted); min-width: 0; max-width: 100%; overflow-x: auto; }
 #modalKaki .btn-row .btn { flex: 1; min-width: 0; }
@@ -646,35 +740,45 @@ textarea { min-height: 80px; resize: vertical; }
   display: flex;
   align-items: center;
   justify-content: center;
-  min-height: calc(100dvh - 64px);
-  padding: 16px;
+  min-height: calc(100svh - 72px);
+  padding: var(--space-4) var(--space-3);
+  animation: loginIn .45s cubic-bezier(.2,.9,.3,1.2);
 }
+@keyframes loginIn {
+  from { opacity: 0; transform: translateY(14px) scale(.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+body:not(.logged-in) main.content { padding-bottom: var(--space-6); }
+
 .login-card {
   width: 100%;
   max-width: 380px;
-  background: var(--surface, #fff);
-  border: 1px solid var(--line, #e2e1df);
-  border-radius: var(--radius-lg, 18px);
-  padding: 28px 22px;
-  box-shadow: 0 10px 30px rgba(0, 0, 0, .08);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-xl);
+  padding: clamp(20px, 6vw, 30px) clamp(18px, 5.5vw, 26px);
+  box-shadow: var(--shadow-2);
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-3);
   overflow-wrap: break-word;
+  word-break: break-word;
 }
 .login-logo {
-  width: 56px; height: 56px;
+  width: 60px; height: 60px;
   margin: 0 auto;
   display: grid; place-items: center;
-  border-radius: 16px;
-  color: #fff;
-  background: linear-gradient(135deg, #2b2b2b, #55524e);
+  border-radius: 18px;
+  color: var(--on-accent, #fff);
+  background: linear-gradient(135deg, #00C4C4, var(--accent) 60%, #00908F);
+  box-shadow: 0 6px 18px rgba(0, 172, 172, .35), inset 0 1px 0 rgba(255,255,255,.4);
 }
-.login-title { font-size: 1.25rem; text-align: center; margin: 0; }
-.login-sub { font-size: .875rem; color: var(--muted, #7a7772); text-align: center; margin: 0 0 6px; }
-.login-hint { font-size: .75rem; color: var(--muted, #7a7772); text-align: center; margin: 4px 0 0; }
-.login-adv { margin-top: 12px; border: 1px solid var(--border, #e6e2db); border-radius: var(--radius-md, 12px); padding: 8px 12px; overflow: hidden; }
-.login-adv summary { font-size: .8rem; font-weight: 600; color: var(--muted, #7a7772); cursor: pointer; list-style: none; }
+[data-theme="dark"] .login-logo { color: #003A3A; }
+.login-title { font-size: var(--text-xl, 1.3rem); text-align: center; margin: 0; color: var(--text-main); }
+.login-sub { font-size: var(--text-sm); color: var(--text-muted); text-align: center; margin: 0; }
+.login-hint { font-size: var(--text-xs); color: var(--text-muted); text-align: center; margin: 0; }
+.login-adv { margin-top: var(--space-2); border: 1px solid var(--border-color); border-radius: var(--radius-md); padding: 10px 14px; overflow: hidden; background: var(--card-bg-sub); }
+.login-adv summary { font-size: var(--text-sm); font-weight: 600; color: var(--text-muted); cursor: pointer; list-style: none; }
 .login-adv summary::-webkit-details-marker { display: none; }
 .login-adv summary::after { content: ' ⚙'; }
 .login-adv[open] summary { margin-bottom: 8px; }
@@ -682,21 +786,22 @@ textarea { min-height: 80px; resize: vertical; }
 
 .field { display: block; margin-bottom: 12px; min-width: 0; }
 .field > span {
-  display: block; font-size: .8rem; font-weight: 600;
-  color: var(--muted, #7a7772); margin-bottom: 6px;
+  display: block; font-size: var(--text-sm); font-weight: 600;
+  color: var(--text-muted); margin-bottom: 6px;
 }
 .field input, .field select {
   width: 100%;
   box-sizing: border-box;
+  min-width: 0;
   padding: 12px 14px;
   font-size: 16px; /* cegah zoom otomatis iOS */
-  border: 1px solid var(--line, #e2e1df);
-  border-radius: var(--radius-md, 12px);
-  background: var(--input-bg, #fff);
-  color: inherit;
+  border: 1px solid var(--border-strong, var(--border-color));
+  border-radius: var(--radius-md);
+  background: var(--input-bg);
+  color: var(--text-main);
 }
 .field input:focus, .field select:focus {
-  outline: 2px solid var(--accent, #2b2b2b);
+  outline: 2px solid var(--focus, var(--accent));
   outline-offset: 1px;
 }
 
@@ -708,9 +813,10 @@ textarea { min-height: 80px; resize: vertical; }
 }
 
 .row-btns { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
-.row-btns .btn { flex: 1 1 auto; }
+.row-btns .btn { flex: 1 1 auto; min-width: 0; }
 
-.hint-text { font-size: .78rem; color: var(--muted, #7a7772); margin: 6px 0 0; overflow-wrap: anywhere; }
+.hint-text { font-size: .78rem; color: var(--text-muted); margin: 6px 0 0; overflow-wrap: anywhere; word-break: break-word; }
+.hint-text code { background: var(--card-bg-sub); padding: 1px 5px; border-radius: 6px; font-size: .9em; overflow-wrap: anywhere; }
 
 .card-head {
   display: flex; align-items: center; justify-content: space-between;
@@ -720,21 +826,21 @@ textarea { min-height: 80px; resize: vertical; }
 .table-wrap {
   overflow-x: auto;            /* tabel boleh digeser horizontal di layar sempit */
   -webkit-overflow-scrolling: touch;
-  border: 1px solid var(--line, #e2e1df);
-  border-radius: var(--radius-md, 12px);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   max-width: 100%;
 }
 .data-table { width: 100%; border-collapse: collapse; font-size: .82rem; }
 .data-table th, .data-table td {
   padding: 8px 10px; text-align: left;
-  border-bottom: 1px solid var(--line, #e2e1df);
+  border-bottom: 1px solid var(--border-color);
   vertical-align: middle;
 }
 .data-table thead th {
   position: sticky; top: 0;
-  background: var(--surface, #fff);
+  background: var(--bg-card);
   font-size: .72rem; text-transform: uppercase; letter-spacing: .04em;
-  color: var(--muted, #7a7772);
+  color: var(--text-muted);
 }
 .data-table .cell-truncate { max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
@@ -743,13 +849,14 @@ textarea { min-height: 80px; resize: vertical; }
   padding: 10px 12px;
   max-height: 180px;
   overflow: auto;
-  background: var(--code-bg, #f4f2f0);
-  border: 1px solid var(--line, #e2e1df);
-  border-radius: var(--radius-md, 12px);
+  background: var(--input-bg);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-md);
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: .72rem;
   white-space: pre-wrap;         /* tanpa overflow horizontal */
   overflow-wrap: anywhere;
+  word-break: break-all;
 }
 
 .btn-sm { padding: 6px 12px; font-size: .78rem; border-radius: 10px; }

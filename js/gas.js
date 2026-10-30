@@ -13,24 +13,19 @@
 (function (global) {
   'use strict';
 
-  const K_URL = 'pameran.gasUrl';
-  // Fallback: isi langsung di baris berikut bila tidak mau menempel tiap perangkat,
-  // atau set lewat URL halaman: ?gas=https://script.google.com/macros/s/xxx/exec
-  const DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbxHG3JWApQ0nkC_4m45hnO8gM-k8EwqOtqWrYJLP9Ag-YpXj-6gs8XRDBCtO0zCfmOG/exec';
+  const K_URL = 'pameran.gasUrl'; // kunci lama; dibersihkan otomatis
+  // URL Web App dikunci di kode (bukan dari ?gas=, kolom input, atau localStorage)
+  // agar login tidak bisa dibelokkan ke backend palsu. Ganti nilai ini hanya bila
+  // Anda membuat deployment baru, lalu naikkan versi cache di sw.js.
+  const PINNED_URL = 'https://script.google.com/macros/s/AKfycbxHG3JWApQ0nkC_4m45hnO8gM-k8EwqOtqWrYJLP9Ag-YpXj-6gs8XRDBCtO0zCfmOG/exec';
   const K_SESSION = 'pameran.session';
 
+  const URL_RE = /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec$/;
+
   function getUrl() {
-    // Prioritas: ?gas=... di URL halaman > localStorage > DEFAULT_URL (hardcode)
-    try {
-      const q = new URLSearchParams(location.search).get('gas');
-      if (q && /^https:\/\/script\.google\.com\//.test(q)) {
-        localStorage.setItem(K_URL, q.trim());
-        return q.trim();
-      }
-    } catch (e) { /* abaikan */ }
-    return localStorage.getItem(K_URL) || DEFAULT_URL;
+    try { localStorage.removeItem(K_URL); } catch (e) { /* abaikan */ }
+    return PINNED_URL;
   }
-  function setUrl(u) { localStorage.setItem(K_URL, (u || '').trim()); }
 
   function getSession() {
     try { return JSON.parse(localStorage.getItem(K_SESSION) || 'null'); }
@@ -44,7 +39,7 @@
   let seq = 0;
   async function call(action, payload) {
     const url = getUrl();
-    if (!url) throw new Error('URL Web App Apps Script belum diset (menu Admin).');
+    if (!URL_RE.test(url)) throw new Error('PINNED_URL di js/gas.js belum diisi / tidak valid.');
     const token = (getSession() || {}).token || '';
     const body = new URLSearchParams({
       action,
@@ -54,6 +49,7 @@
     });
     const res = await fetch(url, {
       method: 'POST',
+      credentials: 'omit',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
       body: body.toString(),
     });
@@ -62,6 +58,7 @@
     let json;
     try { json = JSON.parse(txt); }
     catch (e) { throw new Error('Respons bukan JSON (cek deploy /exec): ' + txt.slice(0, 120)); }
+    if (!json.ok && /^Sesi kedaluwarsa/.test(json.error || '')) setSession(null);
     if (!json.ok) { const err = new Error(json.error || 'Gagal'); err.code = json.code; throw err; }
     return json.data;
   }
@@ -92,7 +89,7 @@
   const saveRekap = (p) => call('saveRekap', p);               // rekap akhir
 
   global.GAS = {
-    getUrl, setUrl, getSession, setSession, call,
+    getUrl, getSession, setSession, call,
     login, logout,
     listUsers, addUser, deleteUser, runTest, clearLog,
     getMasterProduk, savePrepScan, getPrepScans,

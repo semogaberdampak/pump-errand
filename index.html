@@ -73,13 +73,6 @@
         <button class="btn btn-primary btn-block btn-lg" type="submit" id="btnLogin">Masuk</button>
       </form>
       <p class="login-hint">Akses &amp; daftar cabang diverifikasi lewat RBAC Google Apps Script.</p>
-      <details class="login-adv">
-        <summary>Pengaturan koneksi (URL Web App)</summary>
-        <label class="field"><span>URL Web App (/exec)</span>
-          <input type="url" id="loginGasUrl" placeholder="https://script.google.com/macros/s/.../exec" inputmode="url">
-        </label>
-        <button class="btn btn-secondary btn-block btn-sm" onclick="simpanGasUrlLogin()">Simpan URL</button>
-      </details>
     </div>
   </section>
 
@@ -330,13 +323,12 @@
     <div class="card">
       <h2 class="card-title">Koneksi Apps Script (RBAC)</h2>
       <label class="field"><span>URL Web App (/exec)</span>
-        <input type="url" id="gasUrl" placeholder="https://script.google.com/macros/s/.../exec" inputmode="url">
+        <input type="url" id="gasUrl" readonly inputmode="url">
       </label>
       <div class="row-btns">
-        <button class="btn btn-secondary" onclick="simpanGasUrl()">Simpan URL</button>
         <button class="btn btn-ghost" onclick="tesKoneksi()">Tes Koneksi</button>
       </div>
-      <p class="hint-text">Tempel hasil <em>Deploy → Web app</em> dari skrip <code>rbac-apps-script.gs</code>.</p>
+      <p class="hint-text">URL dikunci di <code>js/gas.js</code> (<code>PINNED_URL</code>). Untuk menggantinya, edit file tersebut — lihat <code>docs/PANDUAN-DEPLOY.md</code>.</p>
     </div>
 
     <div class="card">

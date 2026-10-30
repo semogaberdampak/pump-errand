@@ -1,85 +1,71 @@
 # Panduan Deploy — Backend Google Apps Script (RBAC + Database Sheet)
 
-> Pertanyaan umum: *"Apakah harus meng-update properti skrip setiap kali mengubah kode?"*
-> **Jawaban singkat:** Tidak ada "properti" khusus yang perlu diubah. Yang harus Anda lakukan adalah **Deploy ulang** dan menempelkan URL hasil deploy ke aplikasi web. Detail di bawah.
+> **Ringkas:** setiap habis mengubah kode `.gs`, lakukan **Deploy → Manage deployments → ✏️ → New version**. URL `/exec` tidak berubah. URL itu dikunci di `js/gas.js` (`PINNED_URL`), jadi tidak perlu ditempel di layar mana pun.
 
 ---
 
 ## 0. Persiapan (sekali saja)
 
-1. Buat **Google Spreadsheet** baru, misal namanya `DB Pameran`.
-2. Buka spreadsheet → menu **Extensions (Ekstensi) → Apps Script**.
-3. Di editor Apps Script, hapus isi `Code.gs`, lalu **paste seluruh isi file** `gas/rbac-apps-script.gs` dari repo ini.
-4. Simpan (Ctrl+S).
+1. Buat **Google Spreadsheet** baru, misal `DB Pameran`. **Jangan dibagikan** ke siapa pun — skrip berjalan sebagai pemilik, jadi hanya Anda yang perlu akses.
+2. Buka **Extensions (Ekstensi) → Apps Script**.
+3. Hapus isi `Code.gs`, lalu **paste seluruh isi** `gas/rbac-apps-script.gs`. Simpan (Ctrl+S).
 
 ## 1. Inisialisasi database & akun Admin (sekali saja)
 
-Di editor Apps Script:
+Akun admin **dibuat oleh Anda sendiri** lewat fungsi `buatAdminPertama()`; tidak ada akun bawaan.
 
-1. Pilih fungsi **`setup`** pada dropdown fungsi, klik **Run**.
-   - Izinkan akses (Authorize) saat diminta.
-   - Fungsi ini membuat sheet: `Users`, `MasterProduk`, `LogTes`.
-2. Pilih fungsi **`buatAdminPertama`**, klik **Run**.
-   - Email & password admin default muncul di **Execution log / View log**.
-   - Kredensial bawaan di dalam fungsi `buatAdminPertama()` (lihat `gas/rbac-apps-script.gs` baris ±266):
-     - Email: `admin@pameran.id`
-     - Password: `GantiSandi123` ← **ubah dulu nilainya di kode sebelum menjalankan**, lalu deploy.
-   - Setelah login pertama, segera ganti user/password tersebut lewat tab Admin.
+1. Pilih fungsi **`setup`** → **Run** (izinkan akses saat diminta). Membuat sheet `Users`, `MasterProduk`, `LogTes`.
+2. Di editor Apps Script, buka `buatAdminPertama()` dan **ganti `email` dan `pass`** (sandi min. 10 karakter). Ubah hanya di editor Apps Script, **jangan di GitHub**.
+3. Pilih **`buatAdminPertama`** → **Run**. Akun ADMIN masuk ke sheet `Users` (sandi disimpan sebagai hash + salt; sandi tidak dicetak ke log).
+4. Kembalikan `pass` ke placeholder `GANTI_DENGAN_SANDI_KUAT` lalu simpan, agar sandi tidak tertinggal di kode.
+5. Login ke aplikasi dengan email & sandi tadi. Akun cabang/user lain dibuat dari tab **Admin → Tambah User/Cabang**.
 
-> Ini menjawab pertanyaan "bagaimana mengetahui akun admin": jalankan `buatAdminPertama()` sekali, catat kredensial dari log. Setelah itu Admin bisa membuat user/cabang lain langsung dari aplikasi (tab **Admin → Tambah User/Cabang**) — jumlahnya tidak dipatok di awal.
+Isi master produk di sheet `MasterProduk` (kolom: `kode | nama | kategori | harga`). Kategori: `KANISIUS / NON_KANISIUS / EKSTERNAL`.
 
-Isi master produk secukupnya di sheet `MasterProduk` (kolom: `kode | judul | kategori | harga`). Kategori: `KANISIUS / NON_KANISIUS / EKSTERNAL`.
+## 2. Deploy sebagai Web App
 
-## 2. Deploy sebagai Web App (setiap kali kode berubah ⚠️)
+**Pertama kali:** **Deploy → New deployment → Web app**
+- **Execute as:** `Me`
+- **Who has access:** `Anyone` (diperlukan agar PWA bisa memanggil tanpa login Google; keamanan ditangani login aplikasi di sisi server)
+- Salin URL berakhiran **`/exec`**.
 
-Ini langkah yang sering terlewat: **perubahan kode di editor TIDAK otomatis berlaku di URL `/exec`**. Setiap habis mengedit `.gs`:
+**Setiap kali kode `.gs` berubah ⚠️:** perubahan di editor tidak otomatis berlaku. **Deploy → Manage deployments → ✏️ → Version: New version → Deploy.** URL tidak berubah.
 
-1. Klik **Deploy → Manage deployments**.
-2. Pada deployment Web App, klik ikon pensil (✏️) → **Version: New version** → **Deploy**.
-3. Salin URL baru yang berakhiran **`/exec`**.
+## 3. Pasang URL di aplikasi (frontend)
 
-Alternatif: **Deploy → New deployment → Web app**, dengan setelan:
-- **Execute as:** `Me` (pemilik spreadsheet)
-- **Who has access:** `Anyone` *(atau "Anyone with Google account" bila ingin lebih ketat)*
+Satu cara saja: buka `js/gas.js`, isi konstanta **`PINNED_URL`** dengan URL `/exec`, lalu simpan/commit.
 
-> Tips: URL `/exec` tetap sama antar versi; yang berubah hanyalah *versi kode* yang dilayani. Jadi cukup sekali tempel URL-nya, tetapi **jangan lupa "New version"** tiap habis edit kode.
-
-## 3. Tempel URL ke Aplikasi Web (frontend)
-
-Ada tiga cara, pilih salah satu:
-
-| Cara | Kapan dipakai |
-|---|---|
-| **A. Kolom "URL Web App (/exec)"** di layar Login (panel pengaturan koneksi), atau di tab **Admin** dalam aplikasi | Paling fleksibel; tersimpan di localStorage perangkat. |
-| **B. Parameter URL halaman**: `https://…/index.html?gas=https://script.google.com/macros/s/XXXX/exec` | Praktis untuk membagikan ke banyak perangkat sekaligus — sekali buka, URL tersimpan otomatis. |
-| **C. Hardcode** di `js/gas.js` baris `const DEFAULT_URL = '…';` | Bila URL ingin permanen menempel di kode frontend. |
-
-## 4. Menguji koneksi (Sheet Tes)
-
-Setelah login sebagai Admin, buka tab **Admin**:
-- Tekan **Ping** → harus muncul respons `{ok:true,...}`.
-- Tekan **Seed Data Tes** → backend menulis baris uji ke sheet **`LogTes`**; hasilnya tampil di panel log.
-- Buka spreadsheet → sheet `LogTes` untuk memastikan data benar-benar tertulis.
-
-## 5. Ringkas Alur Pembaruan ("apakah harus update properti?")
-
-```
-Edit gas/rbac-apps-script.gs di editor Apps Script
-        │
-        ▼
-Deploy → Manage deployments → ✏️ → New version → Deploy   ← WAJIB tiap perubahan kode
-        │
-        ▼
-(URL /exec tidak berubah — frontend tidak perlu disentuh)
+```js
+const PINNED_URL = 'https://script.google.com/macros/s/XXXX/exec';
 ```
 
-Yang **tidak** perlu diubah: menu **"Project Properties"** maupun *script properties* — skrip ini tidak menyimpan konfigurasi di sana. Konfigurasi (kredensial admin awal dsb.) berupa variabel biasa di dalam `rbac-apps-script.gs`; cukup edit kodenya → simpan → deploy versi baru (langkah 2).
+- URL **tidak bisa** diubah dari layar login, halaman Admin, maupun parameter `?gas=`. Ini disengaja: mencegah tautan palsu membelokkan login ke backend orang lain.
+- URL `/exec` bukan rahasia (terlihat di browser). Yang melindungi data adalah login, sesi, dan otorisasi per cabang di `rbac-apps-script.gs`.
+- Bila membuat **deployment baru** (URL baru): ganti `PINNED_URL`, naikkan `CACHE` di `sw.js` (mis. `pameran-v4`), lalu **Archive** deployment lama di *Manage deployments* agar URL lama mati.
+- Setiap habis mengubah file frontend, naikkan nama `CACHE` di `sw.js` supaya perangkat memuat versi baru.
+
+## 4. Menguji koneksi
+
+Login sebagai Admin → tab **Admin**:
+- **Tes Koneksi (Ping)** → harus muncul `{ok:true,...}`.
+- **Seed Data Tes** → menulis baris uji ke `MasterProduk`; cek langsung di spreadsheet.
+
+## 5. Keamanan yang sudah berlaku di backend
+
+- Sesi disimpan di `CacheService` (berlaku 6 jam, lalu login ulang).
+- Cabang dan nama user selalu diambil dari sesi; user biasa tidak bisa membaca/menulis data cabang lain. Hanya ADMIN yang bisa menyebut cabang lain.
+- Login dikunci 15 menit setelah 5 kali gagal untuk email yang sama (pesan galat sama untuk email tak terdaftar dan sandi salah).
+- Hanya `POST` yang dilayani; `GET` ditolak agar token/sandi tidak tercatat di URL.
 
 ## 6. Troubleshooting
 
 | Gejala | Penyebab umum | Solusi |
 |---|---|---|
-| Respons HTML alih-alih JSON (`Respons bukan JSON (cek deploy /exec)`) | Belum deploy versi baru / URL bukan `/exec` | Ulangi langkah 2, pastikan URL berakhiran `/exec` |
+| `Respons bukan JSON (cek deploy /exec)` | Belum deploy versi baru / URL bukan `/exec` | Ulangi langkah 2, pastikan `PINNED_URL` berakhiran `/exec` |
+| `PINNED_URL di js/gas.js belum diisi / tidak valid` | Format URL salah | Salin ulang URL dari *Manage deployments* |
 | `Access denied` / redirect login Google | "Who has access" bukan `Anyone` | Ubah setelan deployment |
-| Data tidak masuk sheet | Nama sheet event bentrok / spreadsheet salah | Cek `LogTes`, pastikan `SPREADSHEET_ID_` (bila diisi manual) menunjuk spreadsheet yang benar — secara default skrip memakai spreadsheet tempat ia di-bound |
-| Login gagal padahal user benar | Password di-hash SHA-256+salt; user dibuat manual di sheet tanpa salt | Buat user lewat tab Admin, bukan ketik manual di sheet |
+| `Sesi kedaluwarsa` | Lewat 6 jam / token tidak valid | Login ulang |
+| `Terlalu banyak percobaan` | 5x salah sandi | Tunggu 15 menit |
+| `Email atau kata sandi salah` padahal benar | User diketik manual di sheet tanpa hash+salt | Buat user lewat tab Admin |
+| `Ganti dulu nilai pass...` | Placeholder belum diganti | Lihat langkah 1 |
+| Tampilan lama masih muncul | Cache service worker | Naikkan `CACHE` di `sw.js`, muat ulang |
