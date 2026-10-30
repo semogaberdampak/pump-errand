@@ -1,0 +1,271 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#DFDEDC">
+  <script>
+    // Terapkan tema tersimpan sedini mungkin agar tidak berkedip (pola scanstock)
+    (function () {
+      try {
+        if (localStorage.getItem('pameran.theme') === 'dark') {
+          document.documentElement.setAttribute('data-theme', 'dark');
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#000000');
+        }
+      } catch (e) {}
+    })();
+  </script>
+  <title>Pencatatan Pemeran</title>
+
+  <!-- Token desain: salin variabel dari index.html ScanStock -->
+  <link rel="stylesheet" href="css/tokens.css">
+  <!-- Layout & komponen aplikasi pameran -->
+  <link rel="stylesheet" href="css/pameran.css">
+</head>
+<body>
+
+<header class="app-header">
+  <div class="app-header-inner">
+    <span class="app-brand">📗 Pencatatan Pemeran</span>
+    <span id="homeEventInfo" class="user-info"></span>
+    <button class="icon-btn" onclick="toggleTheme()" aria-label="Ganti tema terang/gelap">
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+        <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+      </svg>
+    </button>
+  </div>
+</header>
+
+<main class="content">
+
+  <!-- ============ BERANDA / PILIH EVENT ============ -->
+  <section id="scr-home" class="screen active" aria-labelledby="homeTitle">
+    <div class="screen-header">
+      <h1 id="homeTitle" class="screen-title">Beranda</h1>
+    </div>
+    <div class="screen-body">
+      <p class="screen-subtitle">Pilih atau buat pameran. Setiap pameran punya data persiapan, transaksi, dan inputan sendiri.</p>
+      <button class="btn btn-primary btn-block btn-lg" onclick="buatEventBaru()">+ Buat Pameran Baru</button>
+      <div id="homeEventList" class="data-list"></div>
+    </div>
+  </section>
+
+  <!-- ============ SESI 1: PERSIAPAN ============ -->
+  <section id="scr-persiapan" class="screen" aria-labelledby="pspJudul">
+    <div class="screen-header">
+      <h2 id="pspJudul" class="screen-title">Persiapan</h2>
+      <button class="btn btn-sm btn-secondary" onclick="bukaModalProduk()">+ Produk</button>
+    </div>
+    <p id="pspSub" class="screen-subtitle"></p>
+
+    <div class="card">
+      <div class="card-header">
+        <div class="data-top">
+          <h3 class="card-title">Checklist Persiapan</h3>
+          <span class="chip chip-teal" id="pspCekProgress">0/0</span>
+        </div>
+        <div class="progress-track" style="margin-top:8px"><div class="progress-fill" id="pspCekBar" style="width:0%"></div></div>
+      </div>
+      <div class="card-body">
+        <ul class="checklist" id="psnCekList"></ul>
+        <div class="btn-row">
+          <input type="text" id="psnCekBaru" placeholder="Tambah item checklist…" onkeydown="if(event.key==='Enter'){event.preventDefault();tambahCek()}">
+          <button class="btn btn-secondary btn-sm" style="min-width:64px" onclick="tambahCek()">+</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">Stok Awal Produk</h3></div>
+      <div class="card-body">
+        <div class="stats-grid" id="pspStat"></div>
+        <div id="pspStokList"></div>
+        <p class="rekap-note">Isi jumlah stok yang dibawa ke booth. Angka ini menjadi dasar perhitungan sisa stok di sesi Penginputan.</p>
+      </div>
+    </div>
+
+    <button class="btn btn-primary btn-block btn-lg" onclick="goScreen('pameran')">Lanjut ke Sesi Pemeran →</button>
+  </section>
+
+  <!-- ============ SESI 2: PEMERAN ============ -->
+  <section id="scr-pameran" class="screen" aria-labelledby="pmTitle">
+    <div class="screen-header">
+      <h2 id="pmTitle" class="screen-title">Pemeran — Transaksi</h2>
+      <button class="btn btn-sm btn-secondary" onclick="bukaModalProduk()">+ Produk</button>
+    </div>
+    <div class="screen-body">
+
+      <div class="stats-grid" id="pmStat"></div>
+
+      <div class="card">
+        <div class="card-body">
+          <div class="search-wrap">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+            </svg>
+            <label class="form-label" for="pmCari">Cari produk (nama / kode)</label>
+            <input type="text" id="pmCari" placeholder="Ketik nama atau kode produk…" autocomplete="off"
+                   oninput="cariProduk(this.value)">
+            <div class="result-panel modal-overlay-none" id="pmHasilCari" style="display:none"></div>
+          </div>
+
+          <div id="pmProdukInfo" style="display:none">
+            <div class="data-top">
+              <strong id="pmProdukNama" class="data-nama"></strong>
+              <span class="chip chip-teal" id="pmProdukSub"></span>
+            </div>
+            <div class="qty-stepper" style="margin-top:8px">
+              <button type="button" onclick="stepQty(-1)" aria-label="Kurangi">−</button>
+              <input type="number" id="pmQty" value="1" min="1" inputmode="numeric" aria-label="Jumlah">
+              <button type="button" onclick="stepQty(1)" aria-label="Tambah">+</button>
+            </div>
+            <div class="form-group" style="margin-top:8px">
+              <label class="form-label" for="pmCatatanItem">Catatan item (opsional)</label>
+              <input type="text" id="pmCatatanItem" placeholder="mis. diskon 10%">
+            </div>
+            <button class="btn btn-primary btn-block" style="margin-top:8px" onclick="tambahKeKeranjang()">Tambah ke Keranjang</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3 class="card-title">Keranjang</h3></div>
+        <div class="card-body">
+          <div id="pmKeranjang"></div>
+          <div class="total-row"><span class="label">Total pcs</span><span class="value" id="pmTotItem">0</span></div>
+          <div class="total-row grand"><span class="label">Total rupiah</span><span class="value" id="pmTotRp">Rp 0</span></div>
+
+          <div id="pmBayarRow" style="display:none" class="form-group">
+            <label class="form-label" for="pmMetode">Metode bayar</label>
+            <select id="pmMetode" onchange="document.getElementById('pmTunai').style.display = this.value==='TUNAI' ? '' : 'none'">
+              <option value="TUNAI">Tunai</option>
+              <option value="QRIS">QRIS</option>
+              <option value="DEBIT">Debit / EDC</option>
+              <option value="TRANSFER">Transfer</option>
+            </select>
+            <label class="form-label" for="pmTunai" style="margin-top:8px">Uang diterima (kembalian otomatis)</label>
+            <input type="number" id="pmTunai" min="0" inputmode="numeric" placeholder="0" oninput="hitungKembalian()">
+            <div class="total-row"><span class="label">Kembalian</span><span class="value" id="pmKembalian">Rp 0</span></div>
+            <button class="btn btn-primary btn-block btn-lg" onclick="simpanTransaksi()">Simpan Transaksi</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="data-top">
+            <h3 class="card-title">Riwayat Transaksi</h3>
+            <button class="btn btn-sm btn-ghost" onclick="unduhTransaksiCsv()">Unduh CSV</button>
+          </div>
+        </div>
+        <div class="card-body"><div id="pmRiwayat"></div></div>
+      </div>
+
+      <button class="btn btn-secondary btn-block" onclick="goScreen('penginputan')">Ke Sesi Penginputan →</button>
+    </div>
+  </section>
+
+  <!-- ============ SESI 3: PENGINPUTAN ============ -->
+  <section id="scr-penginputan" class="screen" aria-labelledby="piTitle">
+    <div class="screen-header">
+      <h2 id="piTitle" class="screen-title">Penginputan</h2>
+      <button class="btn btn-sm btn-secondary" onclick="bukaModalProduk()">+ Produk</button>
+    </div>
+    <div class="screen-body">
+
+      <div class="card">
+        <div class="card-header"><h3 class="card-title">Input Manual Jumlah</h3></div>
+        <div class="card-body">
+          <p class="rekap-note">Untuk pencatatan qty tanpa transaksi scanner — mis. titip jual, koreksi stok, atau penjualan yang tercatat manual.</p>
+          <div class="form-group">
+            <label class="form-label" for="piProduk">Produk</label>
+            <select id="piProduk"></select>
+          </div>
+          <div class="input-row" style="grid-template-columns:1fr 1fr;border-bottom:none;padding-top:0">
+            <div class="form-group">
+              <label class="form-label" for="piQty">Jumlah (pcs)</label>
+              <input type="number" id="piQty" class="inp-qty" min="1" inputmode="numeric" placeholder="0">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="piKategori">Kategori</label>
+              <select id="piKategori" class="inp-kat">
+                <option>KANISIUS</option>
+                <option>NON_KANISIUS</option>
+                <option>EKSTERNAL</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="piCatatan">Catatan (opsional)</label>
+            <input type="text" id="piCatatan" placeholder="mis. setor dari gudang, koreksi hitung ulang">
+          </div>
+          <button class="btn btn-primary btn-block" onclick="simpanInputManual()">Simpan Input</button>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><h3 class="card-title">Daftar Input Manual</h3></div>
+        <div class="card-body"><div id="piDaftar"></div></div>
+      </div>
+
+      <div class="card">
+        <div class="card-header">
+          <div class="data-top">
+            <h3 class="card-title">Rekap Akhir</h3>
+            <button class="btn btn-sm btn-primary" onclick="unduhRekap()">Unduh CSV</button>
+          </div>
+        </div>
+        <div class="card-body">
+          <p class="rekap-note" id="piRekapNote"></p>
+          <button class="btn btn-secondary btn-block" onclick="tampilkanRekapTable()">Lihat Tabel Rekap</button>
+          <button class="btn btn-danger btn-block" onclick="selesaiEventAktif()">Tandai Pameran Selesai</button>
+        </div>
+      </div>
+
+      <button class="btn btn-ghost btn-block" onclick="goScreen('persiapan')">← Kembali ke Persiapan</button>
+    </div>
+  </section>
+
+</main>
+
+<!-- Navigasi bawah: 3 sesi -->
+<footer class="bottom-bar" role="navigation" aria-label="Navigasi sesi">
+  <div class="bottom-bar-inner">
+    <nav class="seg-nav">
+      <button data-screen="home" onclick="goScreen('home')" aria-label="Beranda">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"></path><polyline points="9 22 9 12 15 12 15 22"></polyline></svg>
+        Beranda
+      </button>
+      <button data-screen="persiapan" onclick="goScreen('persiapan')" aria-label="Sesi Persiapan">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 11l3 3L22 4"></path><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"></path></svg>
+        Persiapan
+      </button>
+      <button data-screen="pameran" onclick="goScreen('pameran')" aria-label="Sesi Pemeran">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
+        Pemeran
+        <span class="badge-count" id="badgePameran" style="display:none">0</span>
+      </button>
+      <button data-screen="penginputan" onclick="goScreen('penginputan')" aria-label="Sesi Penginputan">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"></path><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4z"></path></svg>
+        Input
+      </button>
+    </nav>
+  </div>
+</footer>
+
+<!-- Modal umum -->
+<div class="modal-overlay" id="modalUmum" role="dialog" aria-modal="true">
+  <div class="modal-box">
+    <h3 class="modal-title" id="modalJudul"></h3>
+    <div class="modal-body" id="modalIsi"></div>
+    <div id="modalKaki"></div>
+  </div>
+</div>
+
+<!-- Area toast -->
+<div id="toastArea" aria-live="polite"></div>
+
+<script src="js/store.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
