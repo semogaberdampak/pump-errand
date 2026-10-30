@@ -73,6 +73,13 @@
         <button class="btn btn-primary btn-block btn-lg" type="submit" id="btnLogin">Masuk</button>
       </form>
       <p class="login-hint">Akses &amp; daftar cabang diverifikasi lewat RBAC Google Apps Script.</p>
+      <details class="login-adv">
+        <summary>Pengaturan koneksi (URL Web App)</summary>
+        <label class="field"><span>URL Web App (/exec)</span>
+          <input type="url" id="loginGasUrl" placeholder="https://script.google.com/macros/s/.../exec" inputmode="url">
+        </label>
+        <button class="btn btn-secondary btn-block btn-sm" onclick="simpanGasUrlLogin()">Simpan URL</button>
+      </details>
     </div>
   </section>
 

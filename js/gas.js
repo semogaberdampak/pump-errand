@@ -14,9 +14,22 @@
   'use strict';
 
   const K_URL = 'pameran.gasUrl';
+  // Fallback: isi langsung di baris berikut bila tidak mau menempel tiap perangkat,
+  // atau set lewat URL halaman: ?gas=https://script.google.com/macros/s/xxx/exec
+  const DEFAULT_URL = '';
   const K_SESSION = 'pameran.session';
 
-  function getUrl() { return localStorage.getItem(K_URL) || ''; }
+  function getUrl() {
+    // Prioritas: ?gas=... di URL halaman > localStorage > DEFAULT_URL (hardcode)
+    try {
+      const q = new URLSearchParams(location.search).get('gas');
+      if (q && /^https:\/\/script\.google\.com\//.test(q)) {
+        localStorage.setItem(K_URL, q.trim());
+        return q.trim();
+      }
+    } catch (e) { /* abaikan */ }
+    return localStorage.getItem(K_URL) || DEFAULT_URL;
+  }
   function setUrl(u) { localStorage.setItem(K_URL, (u || '').trim()); }
 
   function getSession() {
