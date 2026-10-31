@@ -70,10 +70,13 @@
 
   function buatEvent(nama, tanggal, catatan) {
     const list = getEvents();
+    const today = new Date().toISOString().slice(0, 10);
     const ev = {
       id: uid(),
       nama: (nama || '').trim() || 'pameran ' + new Date().toLocaleDateString('id-ID'),
-      tanggal: tanggal || new Date().toISOString().slice(0, 10),
+      tanggal: tanggal || today,
+      tglMulai: today,
+      tglSelesai: today,
       catatan: (catatan || '').trim(),
       dibuat: new Date().toISOString(),
       selesai: null,
@@ -141,9 +144,12 @@
 
   function upsertProduct(prod) {
     const list = getProducts();
-    const i = list.findIndex((p) => p.kode.toUpperCase() === String(prod.kode).toUpperCase());
-    if (i >= 0) list[i] = Object.assign({}, list[i], prod);
-    else list.push(prod);
+    // Normalize kode to uppercase for consistent storage and comparison
+    const normKode = String(prod.kode || '').trim().toUpperCase();
+    const i = list.findIndex((p) => p.kode.toUpperCase() === normKode);
+    const payload = Object.assign({}, prod, { kode: normKode });
+    if (i >= 0) list[i] = Object.assign({}, list[i], payload);
+    else list.push(payload);
     setProducts(list);
     return list;
   }
@@ -154,8 +160,16 @@
 
   /* ---------------- Ekspor ---------------- */
   function unduhCSV(namaFile, rows) {
-    const esc = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
-    const csv = rows.map((r) => r.map(esc).join(';')).join('\r\n');
+    const esc = (v) => {
+      const s = String(v == null ? '' : v);
+      // Per RFC 4180: bungkus dengan kutip jika mengandung koma, newline, atau kutip
+      if (/[",\n\r]/.test(s)) {
+        return '"' + s.replace(/"/g, '""') + '"';
+      }
+      return s;
+    };
+    // Gunakan koma (standar CSV RFC 4180) agar kompatibel dengan Excel dan tools lain
+    const csv = rows.map((r) => r.map(esc).join(',')).join('\r\n');
     const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);

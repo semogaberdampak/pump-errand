@@ -58,7 +58,8 @@
     let json;
     try { json = JSON.parse(txt); }
     catch (e) { throw new Error('Respons bukan JSON (cek deploy /exec): ' + txt.slice(0, 120)); }
-    if (!json.ok && /^Sesi kedaluwarsa/.test(json.error || '')) setSession(null);
+    // Cek kedaluwarsa sesi dengan kata kunci (lebih robust dari regex prefix yang rapuh)
+    if (!json.ok && /kedaluwarsa|login ulang|expired|session/i.test(json.error || '')) setSession(null);
     if (!json.ok) { const err = new Error(json.error || 'Gagal'); err.code = json.code; throw err; }
     return json.data;
   }

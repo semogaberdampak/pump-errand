@@ -123,7 +123,10 @@ function login_(email, pass) {
   email = String(email || '').trim().toLowerCase();
   pass = String(pass || '');
   var cache = CacheService.getScriptCache();
-  var kunci = 'gagal:' + email.slice(0, 100);
+  // Use hash of full email to avoid collisions from similar email prefixes
+  var emailHash = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, email)
+    .map(function (b) { return ('0' + (b & 0xff).toString(16)).slice(-2); }).join('').slice(0, 32);
+  var kunci = 'gagal:' + emailHash;
   var gagal = Number(cache.get(kunci) || 0);
   if (gagal >= LOGIN_MAKS_GAGAL_) {
     throw new Error('Terlalu banyak percobaan. Coba lagi ' + Math.round(LOGIN_KUNCI_DETIK_ / 60) + ' menit lagi');
@@ -133,7 +136,10 @@ function login_(email, pass) {
   for (var i = 1; i < rows.length; i++) {
     if (String(rows[i][0]).toLowerCase() !== email) continue;
     if (hashPass_(pass, rows[i][4]) !== rows[i][3]) break;
-    if (rows[i][6] === false || rows[i][6] === 'FALSE') throw new Error('Akun dinonaktifkan');
+    // Cek aktif: handle berbagai representasi falsy dari Sheets (false, 'FALSE', 0, '0', '')
+    var aktifVal = rows[i][6];
+    var isAktif = !(aktifVal === false || String(aktifVal).toUpperCase() === 'FALSE' || aktifVal === 0 || aktifVal === '0' || aktifVal === '');
+    if (!isAktif) throw new Error('Akun dinonaktifkan');
     cache.remove(kunci);
     var user = { email: rows[i][0], nama: rows[i][1], cabang: rows[i][2], role: rows[i][5] };
     catatLog_('login', user.email + ' (' + user.role + ') OK');

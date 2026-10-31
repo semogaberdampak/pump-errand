@@ -71,35 +71,17 @@
   window.toggleTheme = function () {
     const dark = document.documentElement.getAttribute('data-theme') !== 'dark';
     terapkanTheme(dark);
-    // Add visible class for slide-in effect
-    // Force reflow to ensure animation plays
-    const btn = document.querySelector('.theme-toggle-btn');
-    if (btn) {
-      btn.classList.add('visible');
-      // Trigger reflow for animation to work
-      void btn.offsetWidth;
-    }
   };
-  
-  // Initialize theme and slide-in effect on page load
-  document.addEventListener('DOMContentLoaded', function () {
-    const savedTheme = localStorage.getItem('pameran.theme');
-    const htmlEl = document.documentElement;
-    const btn = document.querySelector('.theme-toggle-btn');
-    
-    if (btn && savedTheme) {
-      // Theme was previously set - restore it and slide in
-      const dark = savedTheme === 'dark';
-      htmlEl.setAttribute('data-theme', dark ? 'dark' : 'light');
-      btn.classList.add('visible');
-      // Trigger reflow for animation
-      void btn.offsetWidth;
-    } else if (btn && !savedTheme) {
-      // First visit - set default theme (light) and don't slide yet
-      // The slide will happen on first toggle
-      htmlEl.setAttribute('data-theme', 'light');
-    }
-  });
+
+  // Initialize theme on page load (before DOMContentLoaded to avoid flash)
+  (function () {
+    try {
+      const savedTheme = localStorage.getItem('pameran.theme');
+      if (savedTheme === 'dark') {
+        document.documentElement.setAttribute('data-theme', 'dark');
+      }
+    } catch (e) {}
+  })();
 
   /* ================= HOME / EVENT ================= */
   function renderHome() {
@@ -198,7 +180,8 @@
   window.selesaiEvent = function (id) {
     const ev = Store.getEvents().find((e) => e.id === id);
     if (!ev) return;
-    Store.updateEvent(id, { selesai: ev.selesai ? null : new Date().toISOString() });
+    // Gunakan undefined agar properti dihilangkan saat JSON.stringify (lebih bersih dari null)
+    Store.updateEvent(id, { selesai: ev.selesai ? undefined : new Date().toISOString() });
     renderHome();
     toast(ev.selesai ? 'Dibuka kembali' : 'Ditandai selesai', 'ok');
   };
@@ -276,7 +259,7 @@
         </div>
         <input class="inp-qty" type="number" min="0" inputmode="numeric" placeholder="0"
                value="${stok[p.kode] != null ? stok[p.kode] : ''}"
-               onchange="setStokProduk('${esc(p.kode)}', this.value)" aria-label="Stok awal ${esc(p.nama)}">
+               onchange="setStokProduk('${p.kode.replace(/'/g, "\\'")}', this.value)" aria-label="Stok awal ${esc(p.nama)}">
         <span class="chip">${esc(p.kategori)}</span>
         <span></span>
       </div>`).join('');
@@ -302,9 +285,10 @@
   function renderPameran() {
     if (!butuhEvent()) return;
     // Gerbang waktu: sesi pameran hanya terbuka pada rentang tanggal agenda
+    // Gunakan tanggal lokal (bukan UTC) karena input date dari user juga lokal
     const ev = Store.getEvents().find((e) => e.id === evtId);
     if (ev && ev.tglMulai) {
-      const hariIni = new Date().toISOString().slice(0, 10);
+      const hariIni = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD di zona waktu lokal
       if (hariIni < ev.tglMulai || hariIni > (ev.tglSelesai || ev.tglMulai)) {
         toast('Sesi pameran baru terbuka saat hari-H (' + ev.tanggal + ')', 'error');
         goScreen('persiapan');
@@ -412,9 +396,12 @@
   window.simpanTransaksi = function () {
     if (!butuhEvent()) return;
     if (!keranjang.length) { toast('Keranjang kosong', 'err'); return; }
-    const metode = ($('pmMetode') || {}).value || 'TUNAI';
-    const bayar = parseFloat($('pmTunai') ? $('pmTunai').value : '') || 0;
+    const metodeEl = $('pmMetode');
+    const metode = (metodeEl ? metodeEl.value : '') || 'TUNAI';
+    const tunaiEl = $('pmTunai');
+    const bayar = tunaiEl ? parseFloat(tunaiEl.value) || 0 : 0;
     const total = keranjang.reduce((a, k) => a + k.qty * k.produk.harga, 0);
+    const kasir = sesiUser ? (sesiUser.nama || sesiUser.email) : '—';
     const trx = {
       id: Store.uid(),
       waktu: new Date().toISOString(),
@@ -422,7 +409,7 @@
       bayar: metode === 'TUNAI' ? bayar : total,
       total,
       items: keranjang.map((k) => ({ kode: k.produk.kode, nama: k.produk.nama, harga: k.produk.harga, qty: k.qty, kategori: k.produk.kategori, catatan: k.catatan })),
-      kasir: '',
+      kasir,
       deleted: false,
     };
     const semua = Store.getTransaksi(evtId);
@@ -490,11 +477,13 @@
 
   window.simpanInputManual = function () {
     const kode = $('piProduk').value;
-    const qty = parseInt($('piQty'), 10);
+    const qty = parseInt($('piQty').value, 10);
     const kat = $('piKategori').value;
     const ket = $('piCatatan').value.trim();
+    const KATEGORI_VALID = ['KANISIUS', 'NON_KANISIUS', 'EKSTERNAL'];
     if (!kode) { toast('Pilih produk', 'err'); return; }
     if (!qty || qty < 1) { toast('Jumlah tidak valid', 'err'); return; }
+    if (!KATEGORI_VALID.includes(kat)) { toast('Kategori tidak valid', 'err'); return; }
     const p = Store.findProduct(kode);
     const semua = Store.getInputan(evtId);
     semua.push({
@@ -600,8 +589,11 @@
     const kode = $('pbKode').value.trim();
     const nama = $('pbNama').value.trim();
     const harga = parseInt($('pbHarga').value, 10);
+    const kategori = $('pbKat').value;
+    const KATEGORI_VALID = ['KANISIUS', 'NON_KANISIUS', 'EKSTERNAL'];
     if (!kode || !nama || !(harga >= 0)) { toast('Lengkapi kode, nama, dan harga', 'err'); return; }
-    Store.upsertProduct({ kode, nama, harga, kategori: $('pbKat').value });
+    if (!KATEGORI_VALID.includes(kategori)) { toast('Kategori tidak valid', 'err'); return; }
+    Store.upsertProduct({ kode, nama, harga, kategori });
     tutupModal();
     toast('Produk tersimpan', 'ok');
     if (document.querySelector('#scr-persiapan.active')) renderPersiapan();
@@ -612,9 +604,11 @@
   /* ================= TAMBAHAN: kembalian, tabel rekap, selesai dari sesi ================= */
   window.hitungKembalian = function () {
     const total = keranjang.reduce((a, k) => a + k.qty * k.produk.harga, 0);
-    const bayar = parseFloat($('pmTunai').value) || 0;
+    const tunaiEl = $('pmTunai');
+    const bayar = tunaiEl ? parseFloat(tunaiEl.value) || 0 : 0;
     const kembali = Math.max(0, bayar - total);
-    $('pmKembalian').textContent = rupiah(kembali);
+    const kembaliEl = $('pmKembalian');
+    if (kembaliEl) kembaliEl.textContent = rupiah(kembali);
   };
 
   window.tampilkanRekapTable = function () {
@@ -686,17 +680,24 @@
   };
 
   /* Tarik master produk dari sheet MasterProduk (tanpa data dummy). */
+  let masterProdukLoading = false;
   async function tarikMasterProduk() {
+    if (masterProdukLoading) return; // Prevent race condition
+    masterProdukLoading = true;
     try {
       const rows = await GAS.getMasterProduk();
       Store.setProducts(rows.map((r) => ({
-        kode: String(r.kode || '').trim(),
+        kode: String(r.kode || '').trim().toUpperCase(),
         nama: r.nama || '',
         kategori: (r.kategori || 'KANISIUS').toUpperCase(),
         harga: Number(r.harga || 0),
       })));
+      toast('Master produk dimuat', 'ok');
     } catch (err) {
       console.warn('Master produk belum dapat diambil:', err.message);
+      toast('Gagal memuat master produk: ' + err.message, 'error');
+    } finally {
+      masterProdukLoading = false;
     }
   }
 
@@ -730,7 +731,7 @@
           <td>${esc(u.cabang)}</td>
           <td class="cell-truncate">${esc(u.email)}</td>
           <td><span class="chip chip-role">${esc(u.role)}</span></td>
-          <td><button class="btn btn-danger btn-sm" onclick="hapusUser('${esc(u.email)}')">Hapus</button></td>
+          <td><button class="btn btn-danger btn-sm" onclick="hapusUser('${u.email.replace(/'/g, "\\'")}')">Hapus</button></td>
         </tr>`).join('') || '<tr><td colspan="4" class="hint-text">Belum ada user.</td></tr>';
     } catch (e) {
       tbody.innerHTML = `<tr><td colspan="4" class="hint-text">Gagal memuat: ${esc(e.message)}</td></tr>`;
@@ -784,6 +785,8 @@
     renderHome();
 
     // Shortcut pencarian: "/" fokus ke input cari
+    // Shortcut tema: Ctrl+Shift+T
+    // Shortcut logout: Ctrl+Shift+L
     document.addEventListener('keydown', function (e) {
       if (e.key === '/' && !/INPUT|SELECT|TEXTAREA/.test(document.activeElement.tagName)) {
         if (document.querySelector('#scr-pameran.active')) { e.preventDefault(); $('pmCari').focus(); }
@@ -791,6 +794,16 @@
       if (e.key === 'Escape') {
         $('pmHasilCari').style.display = 'none';
         tutupModal();
+      }
+      // Ctrl+Shift+T untuk toggle tema
+      if (e.ctrlKey && e.shiftKey && e.key === 'T') {
+        e.preventDefault();
+        toggleTheme();
+      }
+      // Ctrl+Shift+L untuk logout
+      if (e.ctrlKey && e.shiftKey && e.key === 'L') {
+        e.preventDefault();
+        keluarLogin();
       }
     });
 
