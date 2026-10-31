@@ -71,7 +71,35 @@
   window.toggleTheme = function () {
     const dark = document.documentElement.getAttribute('data-theme') !== 'dark';
     terapkanTheme(dark);
+    // Add visible class for slide-in effect
+    // Force reflow to ensure animation plays
+    const btn = document.querySelector('.theme-toggle-btn');
+    if (btn) {
+      btn.classList.add('visible');
+      // Trigger reflow for animation to work
+      void btn.offsetWidth;
+    }
   };
+  
+  // Initialize theme and slide-in effect on page load
+  document.addEventListener('DOMContentLoaded', function () {
+    const savedTheme = localStorage.getItem('pameran.theme');
+    const htmlEl = document.documentElement;
+    const btn = document.querySelector('.theme-toggle-btn');
+    
+    if (btn && savedTheme) {
+      // Theme was previously set - restore it and slide in
+      const dark = savedTheme === 'dark';
+      htmlEl.setAttribute('data-theme', dark ? 'dark' : 'light');
+      btn.classList.add('visible');
+      // Trigger reflow for animation
+      void btn.offsetWidth;
+    } else if (btn && !savedTheme) {
+      // First visit - set default theme (light) and don't slide yet
+      // The slide will happen on first toggle
+      htmlEl.setAttribute('data-theme', 'light');
+    }
+  });
 
   /* ================= HOME / EVENT ================= */
   function renderHome() {
@@ -623,6 +651,8 @@
   function tampilkanApp(user) {
     sesiUser = user;
     $('scr-login').classList.remove('active');
+    // Add logged-in class to show navigation bar
+    document.body.classList.add('logged-in');
     const navAdmin = $('navAdminBtn');
     if (navAdmin) navAdmin.style.display = user.role === 'ADMIN' ? '' : 'none';
     const chip = $('admRoleChip');

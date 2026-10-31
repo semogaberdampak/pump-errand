@@ -871,3 +871,122 @@ body:not(.logged-in) main.content { padding-bottom: var(--space-6); }
   .login-card { padding: 22px 16px; }
   .seg-nav { gap: 0; }
 }
+
+/* ============ CAPSULE THEME ============ */
+/* Capsule theme toggle button - slide transition with custom colors */
+.theme-toggle-btn {
+  position: relative;
+  width: 44px;
+  height: 44px;
+  border-radius: 9999px;
+  /* Custom capsule colors - gradient for modern look */
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-hover) 100%);
+  border: 2px solid var(--accent);
+  cursor: pointer;
+  /* All transitions including transform */
+  transition: background var(--dur-fast) var(--ease-out),
+              border-color var(--dur-fast) var(--ease-out),
+              box-shadow var(--dur-fast) var(--ease-out),
+              transform var(--dur-fast) var(--ease-out);
+  box-shadow: 0 4px 12px rgba(0, 172, 172, 0.35), 
+              inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  flex-shrink: 0;
+  /* Initial slide state - hidden/slide in from side (off-screen right) */
+  transform: translateX(100%);
+  /* Ensure transition starts immediately on class add */
+  transition-property: transform;
+}
+
+/* Visible class - slide in from right */
+.theme-toggle-btn.visible {
+  transform: translateX(0);
+  /* Make sure transition runs from current state */
+  transition-timing-function: cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* Hover state - slight color change, no transform to avoid conflict */
+.theme-toggle-btn:hover {
+  background: linear-gradient(135deg, #00B8B8 0%, #00A0A0 100%);
+  border-color: #00B8B8;
+  box-shadow: 0 6px 16px rgba(0, 172, 172, 0.45), 
+              inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  /* Don't animate hover to keep slide transitions clean */
+  transition: none;
+}
+
+/* Active state - subtle press effect */
+.theme-toggle-btn:active {
+  transform: scale(0.96) translateY(1px);
+  box-shadow: 0 2px 6px rgba(0, 172, 172, 0.3), 
+              inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  /* Keep active state transitionable */
+  transition: transform var(--dur-fast) var(--ease-out);
+}
+
+.theme-toggle-btn:hover {
+  background: linear-gradient(135deg, #00B8B8 0%, #00A0A0 100%);
+  border-color: #00B8B8;
+  box-shadow: 0 6px 16px rgba(0, 172, 172, 0.45), 
+              inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+/* Active state - subtle press effect */
+.theme-toggle-btn:active {
+  transform: scale(0.96) translateY(1px);
+  box-shadow: 0 2px 6px rgba(0, 172, 172, 0.3), 
+              inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+/* Sun/moon icons - slide in opposite directions with color contrast */
+.theme-toggle-btn .ic-sun,
+.theme-toggle-btn .ic-moon {
+  position: absolute;
+  width: 18px;
+  height: 18px;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  transition: transform var(--dur-fast) var(--ease-out),
+              opacity var(--dur-fast) var(--ease-out);
+  filter: invert(1); /* Make icons white on teal background */
+}
+
+.theme-toggle-btn .ic-sun { opacity: 1; transform: translate(-50%, -50%) translateX(0); }
+.theme-toggle-btn .ic-moon { opacity: 0; transform: translate(-50%, -50%) translateX(-10px); }
+
+/* Dark mode - swap icons with slide and adjusted colors */
+[data-theme="dark"] .theme-toggle-btn .ic-sun { opacity: 0; transform: translate(-50%, -50%) translateX(10px); }
+[data-theme="dark"] .theme-toggle-btn .ic-moon { opacity: 1; transform: translate(-50%, -50%) translateX(0); }
+
+/* Screen transitions - slide from side */
+.screen {
+  display: none;
+  flex-direction: column;
+  width: 100%;
+  animation: capsuleIn var(--dur-normal, 200ms) var(--ease-out) forwards;
+  opacity: 0;
+  transform: translateX(-100%);
+}
+
+.screen.active { display: flex; }
+
+@keyframes capsuleIn {
+  from { opacity: 0; transform: translateX(-100%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .screen {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+  
+  .theme-toggle-btn {
+    transform: none;
+    transition: none;
+    background: var(--accent);
+    border-color: var(--border-color);
+    box-shadow: var(--shadow-1), inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  }
+}
