@@ -1069,3 +1069,86 @@ input[readonly].inp-readonly { background: var(--card-bg-sub); color: var(--text
 .tt-thumb svg { width: 14px; height: 14px; }
 .scan-terakhir { margin: 0; font-size: var(--text-sm); color: #8FD8D2; word-break: break-all; }
 .scan-terakhir:empty { display: none; }
+
+/* ============================================================
+   CHECKLIST OK · KARTU PILIH PRODUK · UANG DITERIMA · ADMIN
+   ============================================================ */
+.status-ok { display: flex; flex-direction: column; gap: var(--space-3); }
+.status-ok-head { display: flex; align-items: center; gap: var(--space-3); min-width: 0; }
+.status-ok-ic {
+  flex: none; width: 42px; height: 42px; border-radius: 50%; display: grid; place-items: center;
+  background: #E3F5EF; color: #0F7A57; font-size: 22px; font-weight: 900;
+}
+[data-theme="dark"] .status-ok-ic { background: #10312E; color: #8FD8D2; }
+.status-ok-head strong { display: block; font-size: var(--text-lg); }
+.status-ok-head small { display: block; color: var(--text-muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
+.cek-modal h4 { margin: var(--space-3) 0 var(--space-1); font-size: var(--text-sm); }
+.cek-modal ul { list-style: none; margin: 0; padding: 0; }
+.cek-modal li { padding: 6px 0; border-bottom: 1px dashed var(--border-color); overflow-wrap: anywhere; }
+.cek-modal li::before { content: '✓  '; color: #0F7A57; font-weight: 800; }
+.cek-modal .belum li { color: var(--text-muted); }
+.cek-modal .belum li::before { content: '○  '; color: var(--text-muted); }
+
+.pick-list { display: flex; flex-direction: column; gap: var(--space-2); }
+.pick-card {
+  display: flex; align-items: center; gap: var(--space-3); width: 100%; min-width: 0; text-align: left;
+  padding: var(--space-3); border-radius: var(--radius-lg); cursor: pointer; font-family: inherit; color: inherit;
+  border: 2px solid var(--border-color); background: var(--bg-card);
+}
+.pick-card.on { border-color: #00A3A3; background: var(--card-bg-sub); }
+.pick-radio { flex: none; width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--border-color); display: grid; place-items: center; }
+.pick-card.on .pick-radio { border-color: #00A3A3; }
+.pick-card.on .pick-radio::after { content: ''; width: 12px; height: 12px; border-radius: 50%; background: #00A3A3; }
+.pick-info { min-width: 0; display: flex; flex-direction: column; }
+.pick-nama { font-weight: 700; overflow-wrap: anywhere; }
+.pick-sub { font-size: var(--text-xs); color: var(--text-muted); }
+.pick-card.baru { animation: pickKilau .7s ease; }
+@keyframes pickKilau { 0% { box-shadow: 0 0 0 0 rgba(0,163,163,.55); } 100% { box-shadow: 0 0 0 10px rgba(0,163,163,0); } }
+
+.uang-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-2); align-items: center; }
+.kembalian-row.kurang .value { color: var(--alert); }
+
+.adm-card { display: flex; flex-direction: column; gap: var(--space-3); padding: var(--space-4); }
+.adm-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); flex-wrap: wrap; }
+.adm-title { margin: 0; font-size: var(--text-lg); font-weight: 800; display: flex; align-items: center; gap: var(--space-2); flex-wrap: wrap; }
+.adm-status {
+  display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: var(--radius-full);
+  font-size: var(--text-xs); font-weight: 700; color: var(--text-muted);
+  background: var(--card-bg-sub); border: 1px solid var(--border-color);
+}
+.adm-status .dot { width: 8px; height: 8px; border-radius: 50%; background: #9AA0A6; }
+.adm-status[data-state="ok"] { color: #0F7A57; }
+.adm-status[data-state="ok"] .dot { background: #1E9E6A; box-shadow: 0 0 0 3px rgba(30,158,106,.2); }
+.adm-status[data-state="bad"] { color: #B42318; }
+.adm-status[data-state="bad"] .dot { background: #D93025; box-shadow: 0 0 0 3px rgba(217,48,37,.2); }
+.adm-status[data-state="loading"] .dot { animation: admDenyut 1s ease-in-out infinite; }
+@keyframes admDenyut { 50% { opacity: .25; } }
+.adm-url {
+  display: flex; align-items: center; gap: var(--space-2); min-width: 0;
+  padding: 6px 6px 6px 12px; background: var(--card-bg-sub); border: 1px solid var(--border-color); border-radius: var(--radius-lg);
+}
+.adm-url code { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--text-sm); }
+.adm-grid { display: grid; grid-template-columns: 1fr; gap: 0 var(--space-3); }
+@media (min-width: 560px) { .adm-grid { grid-template-columns: 1fr 1fr; } }
+.adm-card .field { margin-bottom: var(--space-3); }
+.adm-card .btn-block { margin-top: 0; }
+
+.user-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.user-row {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: var(--space-2);
+  padding: 10px 0; border-bottom: 1px solid var(--border-color);
+}
+.user-row:last-child { border-bottom: none; }
+.user-cabang, .user-email { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.user-cabang { font-weight: 700; }
+.user-email { font-size: var(--text-xs); color: var(--text-muted); }
+
+.btn-danger-ghost { background: transparent; color: #B42318; border: 1px solid #E7A69F; box-shadow: none; }
+.btn-danger-ghost:hover { background: #FBEEEC; }
+[data-theme="dark"] .btn-danger-ghost { color: #F28B82; border-color: #6E3B3B; }
+[data-theme="dark"] .btn-danger-ghost:hover { background: #3A2121; }
+
+.tool-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+.tool-grid .btn { min-width: 0; }
+.log-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.adm-card .log-box { margin: 0; }

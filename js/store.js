@@ -11,6 +11,7 @@
      pameran.<id>.stokawal    → (lama) stok awal per produk
      pameran.<id>.produkpameran → produk yang dibawa {kode,isbn,nama,harga,jumlah} (cache sheet produk_pameran_<tgl>)
      pameran.<id>.cek         → checklist persiapan
+     pameran.<id>.cekstatus   → status "Persiapan OK" (disimpan / dikoreksi)
      pameran.<id>.transaksi   → transaksi penjualan (sesi pameran)
      pameran.<id>.inputan     → input manual qty (sesi Penginputan)
    ============================================================ */
@@ -123,7 +124,7 @@
 
   function hapusEvent(id) {
     setEvents(getEvents().filter((e) => e.id !== id));
-    ['stokawal', 'produkpameran', 'cek', 'transaksi', 'inputan'].forEach((k) =>
+    ['stokawal', 'produkpameran', 'cek', 'cekstatus', 'transaksi', 'inputan'].forEach((k) =>
       localStorage.removeItem(PREFIX + id + '.' + k)
     );
     if (getActiveId() === id) setActiveId(null);
@@ -148,6 +149,9 @@
     return val;
   }
   function setCek(id, list) { return tulis(getKey(id, 'cek'), list); }
+  // Status "Persiapan OK": {tersimpan, waktu, oleh, dicentang, total, belum, revisi}; null = belum pernah disimpan
+  function getCekStatus(id) { return baca(getKey(id, 'cekstatus'), null); }
+  function setCekStatus(id, v) { return tulis(getKey(id, 'cekstatus'), v); }
 
   function getTransaksi(id) { return baca(getKey(id, 'transaksi'), []); }
   function setTransaksi(id, list) { return tulis(getKey(id, 'transaksi'), list); }
@@ -242,7 +246,7 @@
     getEvents, setEvents, buatEvent, updateEvent, hapusEvent,
     getActiveId, setActiveId, getActiveEvent,
     getStokAwal, setStokAwal,
-    getCek, setCek,
+    getCek, setCek, getCekStatus, setCekStatus,
     getTransaksi, setTransaksi, ubahTransaksi,
     getInputan, setInputan,
     getProducts, setProducts, upsertProduct, findProduct,

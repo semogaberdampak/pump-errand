@@ -102,22 +102,27 @@
     </div>
     <p id="pspSub" class="screen-subtitle text-truncate"></p>
 
-    <div class="card">
+    <div class="card" id="pspCekCard">
       <div class="card-header">
         <div class="data-top">
           <h3 class="card-title">Checklist Persiapan</h3>
           <span class="chip chip-teal" id="pspCekProgress">0/0</span>
         </div>
-        <div class="progress-track" style="margin-top:8px"><div class="progress-fill" id="pspCekBar" style="width:0%"></div></div>
+        <div class="progress-track" id="pspCekBarWrap" style="margin-top:8px"><div class="progress-fill" id="pspCekBar" style="width:0%"></div></div>
       </div>
       <div class="card-body">
-        <ul class="checklist" id="psnCekList"></ul>
-        <div class="btn-row">
-          <input type="text" id="psnCekBaru" placeholder="Tambah item checklist…" onkeydown="if(event.key==='Enter'){event.preventDefault();tambahCek()}">
-          <button class="btn btn-pill btn-primary btn-sm add-btn" onclick="tambahCek()" aria-label="Tambah item checklist">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-          </button>
+        <div id="pspCekEdit">
+          <p class="rekap-note" id="pspCekInfo"></p>
+          <ul class="checklist" id="psnCekList"></ul>
+          <div class="btn-row">
+            <input type="text" id="psnCekBaru" placeholder="Tambah item checklist…" onkeydown="if(event.key==='Enter'){event.preventDefault();tambahCek()}">
+            <button class="btn btn-pill btn-primary btn-sm add-btn" onclick="tambahCek()" aria-label="Tambah item checklist">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            </button>
+          </div>
+          <button class="btn btn-primary btn-block" id="pspCekSimpan" onclick="simpanChecklist()">Simpan Checklist</button>
         </div>
+        <div id="pspCekOk" class="status-ok" style="display:none"></div>
       </div>
     </div>
 
@@ -224,15 +229,20 @@
 
           <div id="pmBayarRow" style="display:none" class="form-group">
             <label class="form-label" for="pmMetode">Metode bayar</label>
-            <select id="pmMetode" onchange="document.getElementById('pmTunai').style.display = this.value==='TUNAI' ? '' : 'none'">
+            <select id="pmMetode" onchange="ubahMetode()">
               <option value="TUNAI">Tunai</option>
               <option value="QRIS">QRIS</option>
               <option value="DEBIT">Debit / EDC</option>
               <option value="TRANSFER">Transfer</option>
             </select>
-            <label class="form-label" for="pmTunai" style="margin-top:8px">Uang diterima (kosong = uang pas)</label>
-            <input type="number" id="pmTunai" min="0" inputmode="numeric" placeholder="0" oninput="hitungKembalian()">
-            <div class="total-row"><span class="label" id="pmKembalianLabel">Kembalian</span><span class="value" id="pmKembalian">Rp 0</span></div>
+            <div id="pmTunaiBox">
+              <label class="form-label" for="pmTunai" style="margin-top:8px">Uang diterima (Rp)</label>
+              <div class="uang-row">
+                <input type="number" id="pmTunai" min="0" inputmode="numeric" placeholder="0" oninput="hitungKembalian()">
+                <button type="button" class="btn btn-secondary btn-sm" onclick="uangPas()">Uang pas</button>
+              </div>
+              <div class="total-row kembalian-row" id="pmKembalianRow"><span class="label" id="pmKembalianLabel">Kembalian</span><span class="value" id="pmKembalian">Rp 0</span></div>
+            </div>
             <button class="btn btn-primary btn-block btn-lg save-trx-btn" onclick="simpanTransaksi()">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
               Simpan Transaksi
@@ -340,60 +350,62 @@
 
 <section id="scr-admin" class="screen" aria-labelledby="admTitle">
   <div class="screen-header">
-    <h1 id="admTitle" class="screen-title">Admin — Hak Akses</h1>
+    <h1 id="admTitle" class="screen-title">Admin</h1>
     <span class="chip chip-role" id="admRoleChip">ADMIN</span>
   </div>
   <div class="screen-body">
-    <p class="screen-subtitle">Buat akun <strong>Cabang / User</strong> (dinamis, tidak dibatasi jumlahnya). Setelah dibuat, user bisa langsung login dan semua fitur siap dipakai. Data tersimpan di Google Spreadsheet melalui Apps Script Web App.</p>
+    <p class="screen-subtitle">Kelola koneksi Apps Script, cabang, dan user. Akun yang dibuat bisa langsung dipakai login.</p>
 
-    <div class="card">
-      <h2 class="card-title">Koneksi Apps Script (RBAC)</h2>
-      <label class="field"><span>URL Web App (/exec)</span>
-        <input type="url" id="gasUrl" readonly inputmode="url">
-      </label>
-      <div class="row-btns">
-        <button class="btn btn-ghost" onclick="tesKoneksi()">Tes Koneksi</button>
+    <div class="card adm-card">
+      <div class="adm-head">
+        <h2 class="adm-title">Koneksi Apps Script</h2>
+        <span class="adm-status" id="admStatus" data-state="idle" aria-live="polite"><i class="dot"></i><span id="admStatusTeks">Belum dites</span></span>
       </div>
-      <p class="hint-text">URL dikunci di <code>js/gas.js</code> (<code>PINNED_URL</code>). Untuk menggantinya, edit file tersebut — lihat <code>docs/PANDUAN-DEPLOY.md</code>.</p>
+      <div class="adm-url">
+        <code id="gasUrl"></code>
+        <button type="button" class="btn btn-pill btn-ghost btn-sm" onclick="salinGasUrl()">Salin</button>
+      </div>
+      <button class="btn btn-secondary btn-block" id="btnTesKoneksi" onclick="tesKoneksi()">Tes Koneksi</button>
+      <p class="hint-text">URL dikunci di <code>js/gas.js</code> (<code>PINNED_URL</code>). Untuk menggantinya, edit file tersebut.</p>
     </div>
 
-    <div class="card">
-      <h2 class="card-title">Tambah Cabang / User</h2>
-      <label class="field"><span>Nama Cabang</span>
-        <input type="text" id="admCabang" placeholder="mis. Kanisius Jakarta">
-      </label>
-      <label class="field"><span>Email User</span>
-        <input type="email" id="admEmail" placeholder="user@cabang.id">
-      </label>
-      <label class="field"><span>Kata Sandi Sementara</span>
-        <input type="text" id="admPass" placeholder="min. 6 karakter">
-      </label>
-      <label class="field"><span>Peran</span>
-        <select id="admRole"><option value="USER">User (Cabang)</option><option value="ADMIN">Admin</option></select>
-      </label>
-      <button class="btn btn-primary btn-block" onclick="tambahUser()">+ Buat Akun</button>
+    <div class="card adm-card">
+      <h2 class="adm-title">Tambah Cabang / User</h2>
+      <div class="adm-grid">
+        <label class="field"><span>Nama cabang</span>
+          <input type="text" id="admCabang" placeholder="mis. Kanisius Jakarta" autocomplete="off">
+        </label>
+        <label class="field"><span>Email user</span>
+          <input type="email" id="admEmail" placeholder="user@cabang.id" autocomplete="off">
+        </label>
+        <label class="field"><span>Kata sandi sementara</span>
+          <input type="text" id="admPass" placeholder="min. 6 karakter" autocomplete="off">
+        </label>
+        <label class="field"><span>Peran</span>
+          <select id="admRole"><option value="USER">User (Cabang)</option><option value="ADMIN">Admin</option></select>
+        </label>
+      </div>
+      <button class="btn btn-primary btn-block" onclick="tambahUser()">Buat Akun</button>
     </div>
 
-    <div class="card">
-      <div class="card-head">
-        <h2 class="card-title">Daftar Cabang / User</h2>
-        <button class="btn btn-ghost btn-sm" onclick="muaiUsers()">↻ Muat ulang</button>
+    <div class="card adm-card">
+      <div class="adm-head">
+        <h2 class="adm-title">Daftar Cabang / User <span class="chip" id="admJumlah">0</span></h2>
+        <button class="btn btn-pill btn-ghost btn-sm" onclick="muaiUsers()">↻ Muat ulang</button>
       </div>
-      <div class="table-wrap">
-        <table class="data-table" id="tblUsers">
-          <thead><tr><th>Cabang</th><th>Email</th><th>Peran</th><th>Aksi</th></tr></thead>
-          <tbody></tbody>
-        </table>
-      </div>
+      <ul class="user-list" id="admUserList"><li class="hint-text">Memuat…</li></ul>
     </div>
 
-    <div class="card">
-      <h2 class="card-title">Sheet Tes</h2>
-      <p class="hint-text">Jalankan fungsi test bawaan Apps Script untuk memastikan spreadsheet <code>Users</code> &amp; log berfungsi.</p>
-      <div class="row-btns">
+    <div class="card adm-card">
+      <h2 class="adm-title">Sheet Tes</h2>
+      <p class="hint-text" style="margin:0">Jalankan fungsi uji bawaan Apps Script untuk memastikan spreadsheet <code>Users</code> &amp; log berfungsi.</p>
+      <div class="tool-grid">
         <button class="btn btn-secondary" onclick="jalanTes('ping')">Ping</button>
         <button class="btn btn-secondary" onclick="jalanTes('seedTest')">Seed Data Tes</button>
-        <button class="btn btn-danger btn-sm" onclick="bersihkanLog()">Bersihkan Log</button>
+      </div>
+      <div class="log-head">
+        <span class="form-label" style="margin:0">Log aktivitas</span>
+        <button class="btn btn-pill btn-ghost btn-sm" onclick="bersihkanLog()">Bersihkan</button>
       </div>
       <pre class="log-box" id="admLog">(belum ada aktivitas)</pre>
     </div>

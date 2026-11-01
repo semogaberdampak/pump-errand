@@ -65,10 +65,12 @@ Semua tampilan di aplikasi memakai **WIB (Asia/Jakarta)**, apa pun zona waktu HP
 
 ## Alur pemakaian
 
+0. **Persiapan → Checklist:** centang item, lalu **Simpan Checklist**. Setelah tersimpan, kartu hanya menampilkan status **Persiapan OK** (waktu WIB, jumlah item). **Tampilkan** membuka daftar item yang sudah dicentang; **Koreksi** membuka kembali checklist untuk diubah, lalu **Simpan Koreksi** (tercatat sebagai revisi). Status checklist tersimpan di perangkat.
+
 1. **Persiapan** → *Scan Produk* (atau ketik kode / ISBN / judul) → data ditarik dari sheet `Master` → modal berisi kode & nama (terkunci), **harga** dan **jumlah dibawa** → *Simpan* ke `produk_pameran_<tanggal>`.
-2. **Pameran** → *Transaksi Baru* → scan / ketik produk (dicari hanya dari `produk_pameran_<tanggal>`) → isi **diskon per item** di tiap baris keranjang (% atau Rp) → subtotal, total diskon, total bayar & kembalian dihitung otomatis.
+2. **Pameran** → *Transaksi Baru* → **Scan Barcode / QR**: produk yang ditemukan tampil sebagai kartu di jendela baru → ketuk kartu untuk memilih → **Scan** (menambah jenis produk lain, kartu sebelumnya tetap) atau **Lanjut** (yang dipilih masuk keranjang; jumlah & diskon diatur di keranjang). Bisa juga ketik / cari produk (dicari hanya dari `produk_pameran_<tanggal>`) → isi **diskon per item** di tiap baris keranjang (% atau Rp) → subtotal, total diskon, total bayar & kembalian dihitung otomatis.
    - Rumus per baris: `harga × qty − diskon` (diskon % dibulatkan ke rupiah; diskon Rp berlaku untuk seluruh baris itu dan tidak boleh melebihi subtotal baris). Total = jumlah semua baris.
-   - Uang tunai dikosongkan = uang pas; uang kurang ditolak.
+   - **Tunai:** isi *Uang diterima* (atau tekan *Uang pas*). Lebih dari total → muncul kembalian; kurang → tampil minus (mis. `Rp -2.000`) dan transaksi tidak bisa disimpan; uang pas atau lebih bisa dilanjutkan. Non-tunai (QRIS/Debit/Transfer) dianggap lunas sesuai total.
 3. **Riwayat transaksi** → *Detail* → **Batalkan** (wajib alasan) atau **Koreksi**.
    - *Batalkan*: transaksi **tidak dihapus**, hanya ditandai BATAL (alasan, siapa, kapan). Stok produk otomatis kembali.
    - *Koreksi*: isi transaksi dimuat ke keranjang; saat disimpan, transaksi lama otomatis dibatalkan dan transaksi baru tertaut ke yang lama (kolom `menggantikan`).

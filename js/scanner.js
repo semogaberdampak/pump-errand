@@ -22,6 +22,7 @@
   let aktif = false;
   let sibuk = false;
   let onKode = null;
+  let onTutup = null;
   let kodeTerakhir = '';
   let waktuTerakhir = 0;
 
@@ -52,6 +53,7 @@
   async function buka(opsi) {
     opsi = opsi || {};
     onKode = opsi.onKode || null;
+    onTutup = opsi.onTutup || null;
     sibuk = false;
     kodeTerakhir = '';
     waktuTerakhir = 0;
@@ -97,6 +99,9 @@
     aktif = false;
     sibuk = false;
     onKode = null;
+    const cb = onTutup;
+    onTutup = null;
+    if (cb) { try { cb(); } catch (e) { console.warn(e); } }
     const el = $('scanOverlay');
     if (el) { el.classList.remove('open'); el.style.display = 'none'; }
     document.body.classList.remove('scan-open');

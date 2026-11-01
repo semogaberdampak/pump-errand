@@ -229,11 +229,44 @@
     $('pspJudul').textContent = ev.nama;
     $('pspSub').textContent = ev.tanggal + (ev.catatan ? ' · ' + ev.catatan : '');
 
-    // Checklist
+    renderChecklist();
+
+    // Produk yang dibawa (dari sheet produk_pameran_<tanggal>)
+    renderProdukPameran();
+  }
+  window.renderPersiapan = renderPersiapan;
+
+  /* ---- Checklist: Simpan → status "Persiapan OK"; Tampilkan (modal) & Koreksi ---- */
+  function renderChecklist() {
     const cek = Store.getCek(evtId);
+    const st = Store.getCekStatus(evtId);
+    const ok = !!(st && st.tersimpan);
     const done = cek.filter((c) => c.done).length;
-    $('pspCekProgress').textContent = done + '/' + cek.length;
+    $('pspCekEdit').style.display = ok ? 'none' : '';
+    $('pspCekOk').style.display = ok ? '' : 'none';
+    $('pspCekBarWrap').style.display = ok ? 'none' : '';
+    $('pspCekProgress').textContent = ok ? 'OK' : done + '/' + cek.length;
+    $('pspCekProgress').className = 'chip ' + (ok ? 'chip-ok' : 'chip-teal');
+    if (ok) {
+      const rinci = [Store.waktuWIB(st.waktu), st.dicentang + '/' + st.total + ' item'];
+      if (st.belum) rinci.push(st.belum + ' belum dicentang');
+      if (st.revisi) rinci.push('revisi ke-' + st.revisi);
+      if (st.oleh) rinci.push(esc(st.oleh));
+      $('pspCekOk').innerHTML = `
+        <div class="status-ok-head">
+          <span class="status-ok-ic" aria-hidden="true">✓</span>
+          <div><strong>Persiapan OK</strong><small>Disimpan ${rinci.join(' · ')}</small></div>
+        </div>
+        <div class="btn-row">
+          <button class="btn btn-secondary" onclick="tampilkanChecklist()">Tampilkan</button>
+          <button class="btn btn-ghost" onclick="koreksiChecklist()">Koreksi</button>
+        </div>`;
+      return;
+    }
     $('pspCekBar').style.width = cek.length ? Math.round((done / cek.length) * 100) + '%' : '0%';
+    $('pspCekInfo').textContent = st && st.waktu ? 'Sedang dikoreksi — terakhir disimpan ' + Store.waktuWIB(st.waktu) + '.' : '';
+    $('pspCekInfo').style.display = st && st.waktu ? '' : 'none';
+    $('pspCekSimpan').textContent = st && st.waktu ? 'Simpan Koreksi' : 'Simpan Checklist';
     $('psnCekList').innerHTML = cek.map((c, i) => `
       <li class="${c.done ? 'done' : ''}">
         <span class="check-box" role="checkbox" aria-checked="${!!c.done}" tabindex="0"
@@ -243,11 +276,49 @@
         <span class="cek-label" style="flex:1">${esc(c.teks)}</span>
         <button class="cart-remove" title="Hapus item" onclick="hapusCek(${i})">×</button>
       </li>`).join('');
-
-    // Produk yang dibawa (dari sheet produk_pameran_<tanggal>)
-    renderProdukPameran();
   }
-  window.renderPersiapan = renderPersiapan;
+
+  window.simpanChecklist = function () {
+    if (!butuhEvent()) return;
+    const cek = Store.getCek(evtId);
+    if (!cek.length) { toast('Checklist masih kosong', 'error'); return; }
+    const belum = cek.filter((c) => !c.done).length;
+    if (belum && !confirm(belum + ' item belum dicentang. Tetap simpan sebagai "Persiapan OK"?')) return;
+    const lama = Store.getCekStatus(evtId);
+    Store.setCekStatus(evtId, {
+      tersimpan: true, waktu: new Date().toISOString(),
+      oleh: sesiUser ? (sesiUser.nama || sesiUser.email) : '',
+      dicentang: cek.length - belum, total: cek.length, belum,
+      revisi: lama && lama.waktu ? (lama.revisi || 0) + 1 : 0,
+    });
+    renderChecklist();
+    toast(lama && lama.waktu ? 'Koreksi checklist disimpan' : 'Persiapan OK tersimpan', 'ok');
+  };
+
+  window.tampilkanChecklist = function () {
+    if (!butuhEvent()) return;
+    const cek = Store.getCek(evtId);
+    const st = Store.getCekStatus(evtId);
+    const sudah = cek.filter((c) => c.done), belum = cek.filter((c) => !c.done);
+    const ul = (arr) => '<ul>' + arr.map((c) => '<li>' + esc(c.teks) + '</li>').join('') + '</ul>';
+    showModalBox('Checklist Persiapan', `<div class="cek-modal">
+      ${st && st.waktu ? '<p class="rekap-note">Disimpan ' + Store.waktuWIB(st.waktu) + (st.oleh ? ' oleh ' + esc(st.oleh) : '') + '</p>' : ''}
+      <h4>Sudah dicentang (${sudah.length})</h4>
+      ${sudah.length ? ul(sudah) : '<p class="rekap-note">Belum ada.</p>'}
+      ${belum.length ? '<div class="belum"><h4>Belum dicentang (' + belum.length + ')</h4>' + ul(belum) + '</div>' : ''}
+    </div>`, `<div class="btn-row">
+      <button class="btn btn-secondary" onclick="tutupModal()">Tutup</button>
+      <button class="btn btn-ghost" onclick="koreksiChecklist()">Koreksi</button>
+    </div>`);
+  };
+
+  // Koreksi: buka kembali checklist untuk diubah, lalu Simpan Koreksi
+  window.koreksiChecklist = function () {
+    const st = Store.getCekStatus(evtId);
+    if (st) Store.setCekStatus(evtId, Object.assign({}, st, { tersimpan: false }));
+    tutupModal();
+    renderChecklist();
+  };
 
   window.tambahCek = function () {
     const inp = $('psnCekBaru');
@@ -605,7 +676,7 @@
     $('pmCatatanItem').value = '';
     $('pmMetode').value = 'TUNAI';
     $('pmTunai').value = '';
-    $('pmTunai').style.display = '';
+    ubahMetode();
   }
 
   window.mulaiTransaksiBaru = async function () {
@@ -652,19 +723,83 @@
     if (tambahDariKode(teks, true)) { $('pmCari').value = ''; $('pmHasilCari').style.display = 'none'; }
   };
 
+  /* ---- Scan di Pameran: produk ditemukan → kartu (pilih) → Scan lagi / Lanjut ke keranjang ---- */
+  let kandidatScan = [];   // [{p, pilih}] produk hasil scan yang menunggu dipilih
+
+  // Masukkan produk ke keranjang (baris yang sama bertambah qty); kembalikan total qty produk itu di keranjang
+  function masukKeranjang(p, qty) {
+    const idx = keranjang.findIndex((k) => k.produk.kode === p.kode && !k.catatan);
+    if (idx >= 0) keranjang[idx].qty += qty;
+    else keranjang.push({ produk: p, qty, catatan: '', diskonTipe: 'PERSEN', diskonNilai: 0 });
+    return keranjang.filter((k) => k.produk.kode === p.kode).reduce((a, k) => a + k.qty, 0);
+  }
+
+  function tampilkanKandidat(kodeBaru) {
+    const kartu = kandidatScan.map((k) => `
+      <button type="button" class="pick-card${k.pilih ? ' on' : ''}${k.p.kode === kodeBaru ? ' baru' : ''}" role="checkbox"
+              aria-checked="${k.pilih}" data-kode="${esc(k.p.kode)}" onclick="pilihKandidat(this.dataset.kode)">
+        <span class="pick-radio" aria-hidden="true"></span>
+        <span class="pick-info">
+          <span class="pick-nama">${esc(k.p.nama)}</span>
+          <span class="pick-sub">${esc(k.p.kode)} · ${rupiah(k.p.harga)} · stok ${stokTersisa(k.p.kode)}</span>
+        </span>
+      </button>`).join('');
+    showModalBox(kandidatScan.length > 1 ? 'Produk ditemukan (' + kandidatScan.length + ')' : 'Produk ditemukan',
+      '<p class="rekap-note">Ketuk kartu untuk memilih produk yang dibeli. Tekan <strong>Scan</strong> bila membeli lebih dari satu jenis, atau <strong>Lanjut</strong> untuk memasukkan yang dipilih ke keranjang.</p>' +
+      '<div class="pick-list">' + kartu + '</div>',
+      `<div class="btn-row">
+        <button class="btn btn-secondary" onclick="scanLagiPameran()">Scan</button>
+        <button class="btn btn-primary" onclick="lanjutKandidat()">Lanjut</button>
+      </div>`);
+  }
+
+  window.pilihKandidat = function (kode) {
+    const k = kandidatScan.find((x) => x.p.kode === kode);
+    if (!k) return;
+    k.pilih = !k.pilih;
+    const el = document.querySelector('.pick-card[data-kode="' + (window.CSS && CSS.escape ? CSS.escape(kode) : kode) + '"]');
+    if (el) { el.classList.toggle('on', k.pilih); el.setAttribute('aria-checked', k.pilih ? 'true' : 'false'); }
+  };
+
+  // Scan produk berikutnya: modal ditutup, kamera lanjut; kartu sebelumnya tetap tersimpan
+  window.scanLagiPameran = function () { tutupModal(); };
+
+  window.lanjutKandidat = function () {
+    const dipilih = kandidatScan.filter((k) => k.pilih);
+    if (!dipilih.length) { toast('Ketuk kartu produk yang dipilih dulu', 'error'); return; }
+    let melebihi = 0;
+    dipilih.forEach((k) => { masukKeranjang(k.p, 1); if (stokTersisa(k.p.kode) < 0) melebihi++; });
+    kandidatScan = [];
+    tutupModal();
+    Scanner.tutup();
+    renderKeranjang();
+    toast(dipilih.length + ' produk masuk keranjang — atur jumlah & diskon' + (melebihi ? ' (ada yang melebihi stok)' : ''), melebihi ? 'error' : 'ok');
+    const box = $('pmKeranjang');
+    if (box && box.scrollIntoView) box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  };
+
   window.bukaScanPameran = async function () {
     if (!trxAktif) { await mulaiTransaksiBaru(); if (!trxAktif) return; }
+    kandidatScan = [];
     Scanner.buka({
       judul: 'Scan produk — transaksi',
-      petunjuk: 'Setiap scan menambah 1 pcs ke keranjang. Tutup bila sudah selesai.',
+      petunjuk: 'Scan produk, pilih kartunya, lalu Lanjut. Scan lagi bila membeli lebih dari satu jenis.',
+      onTutup: () => { kandidatScan = []; },
       onKode: async (teks, sumber) => {
-        const manual = sumber === 'manual';
-        if (!tambahDariKode(teks, manual) && manual) {
+        const p = Store.findProdukPameran(evtId, teks);
+        if (p) {
+          if (!kandidatScan.some((k) => k.p.kode === p.kode)) kandidatScan.push({ p, pilih: false });
+          tampilkanKandidat(p.kode);
+          return true;                       // scanner ditahan sampai modal ditutup
+        }
+        if (sumber === 'manual') {
           // Ketikan bukan kode persis → tutup scanner dan tampilkan hasil pencarian
           Scanner.tutup();
           $('pmCari').value = teks;
           cariProduk(teks);
           $('pmCari').focus();
+        } else {
+          toast('“' + String(teks).slice(0, 40) + '” tidak ada di produk pameran', 'error');
         }
         return false;
       },
@@ -775,11 +910,12 @@
     const h = hitungTotal();
     if (h.salah) { toast('Diskon “' + h.salah.produk.nama.slice(0, 30) + '” tidak valid', 'error'); return; }
     const metode = ($('pmMetode').value) || 'TUNAI';
-    const rawBayar = $('pmTunai').value;
-    let bayar = h.total; // non-tunai, atau tunai dikosongkan = uang pas
-    if (metode === 'TUNAI' && rawBayar !== '') {
-      bayar = parseFloat(rawBayar) || 0;
-      if (bayar < h.total) { toast('Uang diterima kurang ' + rupiah(h.total - bayar), 'error'); return; }
+    let bayar = h.total; // non-tunai: lunas sesuai total
+    if (metode === 'TUNAI') {
+      // Tunai: uang pas atau lebih → lanjut (lebih = ada kembalian); kurang → ditolak
+      const raw = $('pmTunai').value;
+      bayar = raw === '' ? 0 : (parseFloat(raw) || 0);
+      if (bayar < h.total) { toast('Uang diterima kurang ' + rupiah(h.total - bayar) + ' (' + rupiah(bayar - h.total) + ')', 'error'); return; }
     }
     const ev = Store.getActiveEvent();
     const email = sesiUser ? sesiUser.email : '';
@@ -953,7 +1089,7 @@
     koreksiDari = id;
     trxAktif = true;
     $('pmMetode').value = t.metode || 'TUNAI';
-    $('pmTunai').style.display = $('pmMetode').value === 'TUNAI' ? '' : 'none';
+    ubahMetode();
     renderPanelTransaksi();
     renderKeranjang();
     window.scrollTo({ top: 0 });
@@ -1123,15 +1259,27 @@
   };
 
   /* ================= TAMBAHAN: kembalian, tabel rekap, selesai dari sesi ================= */
+  // Selisih = uang diterima − total. Positif → kembalian; negatif tampil minus (mis. Rp -2.000); 0 → uang pas
   window.hitungKembalian = function () {
     const total = hitungTotal().total;
     const raw = $('pmTunai') ? $('pmTunai').value : '';
-    const bayar = raw === '' ? total : (parseFloat(raw) || 0); // kosong = uang pas
+    const bayar = raw === '' ? 0 : (parseFloat(raw) || 0);
     const selisih = bayar - total;
-    const lbl = $('pmKembalianLabel');
-    if (lbl) lbl.textContent = selisih < 0 ? 'Kurang' : 'Kembalian';
     const el = $('pmKembalian');
-    if (el) el.textContent = rupiah(Math.abs(selisih));
+    if (el) el.textContent = rupiah(selisih);
+    const row = $('pmKembalianRow');
+    if (row) row.classList.toggle('kurang', selisih < 0);
+  };
+
+  window.ubahMetode = function () {
+    const tunai = ($('pmMetode').value || 'TUNAI') === 'TUNAI';
+    $('pmTunaiBox').style.display = tunai ? '' : 'none';
+    hitungKembalian();
+  };
+
+  window.uangPas = function () {
+    $('pmTunai').value = hitungTotal().total;
+    hitungKembalian();
   };
 
   window.tampilkanRekapTable = function () {
@@ -1174,8 +1322,7 @@
     if (navAdmin) navAdmin.style.display = user.role === 'ADMIN' ? '' : 'none';
     const chip = $('admRoleChip');
     if (chip) chip.textContent = user.role;
-    const urlInput = $('gasUrl');
-    if (urlInput) urlInput.value = GAS.getUrl();
+    isiGasUrl();
     $('homeEventInfo').textContent = user.cabang + ' · ' + user.nama;
     goScreen('home');
     Sync.flush(); // kirim antrean yang tertinggal (mis. saat sesi sebelumnya habis / offline)
@@ -1205,39 +1352,80 @@
   /* ================= HALAMAN ADMIN ================= */
   function catatLog(txt) {
     const box = $('admLog');
+    if (box.textContent === '(belum ada aktivitas)' || box.textContent === '(log dibersihkan)') box.textContent = '';
     box.textContent = Store.waktuWIB(Date.now(), true) + ' ▸ ' + txt + '\n' + box.textContent;
   }
 
+  function isiGasUrl() {
+    const el = $('gasUrl');
+    if (!el) return;
+    const u = GAS.getUrl() || '';
+    const ringkas = u.replace(/^https:\/\//, '');
+    el.textContent = ringkas.length > 46 ? ringkas.slice(0, 30) + '…' + ringkas.slice(-12) : ringkas;
+    el.title = u;
+  }
+
+  window.salinGasUrl = async function () {
+    try { await navigator.clipboard.writeText(GAS.getUrl()); toast('URL disalin', 'ok'); }
+    catch (e) { toast('Tidak bisa menyalin — salin manual dari js/gas.js', 'error'); }
+  };
+
+  // Status koneksi: idle | loading | ok | bad
+  function setStatusKoneksi(state, teks) {
+    const el = $('admStatus');
+    if (!el) return;
+    el.setAttribute('data-state', state);
+    $('admStatusTeks').textContent = teks;
+  }
+
   window.tesKoneksi = async function () {
+    const btn = $('btnTesKoneksi');
+    btn.disabled = true;
+    setStatusKoneksi('loading', 'Menguji…');
     catatLog('ping…');
-    try { const d = await GAS.runTest('ping'); catatLog('OK: ' + JSON.stringify(d)); toast('Koneksi OK'); }
-    catch (e) { catatLog('GAGAL: ' + e.message); toast('Koneksi gagal', 'error'); }
+    const t0 = Date.now();
+    try {
+      const d = await GAS.runTest('ping');
+      const ms = Date.now() - t0;
+      setStatusKoneksi('ok', 'Terhubung · ' + ms + ' ms');
+      catatLog('OK (' + ms + ' ms): ' + JSON.stringify(d));
+      toast('Koneksi OK', 'ok');
+    } catch (e) {
+      setStatusKoneksi('bad', e.jaringan ? 'Tidak ada koneksi' : 'Gagal');
+      catatLog('GAGAL: ' + e.message);
+      toast('Koneksi gagal: ' + e.message, 'error');
+    } finally { btn.disabled = false; }
   };
 
   window.jalanTes = async function (nama) {
     catatLog('test ' + nama + '…');
-    try { const d = await GAS.runTest(nama); catatLog(JSON.stringify(d, null, 1)); toast('Tes selesai'); }
+    try { const d = await GAS.runTest(nama); catatLog(JSON.stringify(d, null, 1)); toast('Tes selesai', 'ok'); }
     catch (e) { catatLog('GAGAL: ' + e.message); toast('Tes gagal', 'error'); }
   };
 
   window.bersihkanLog = function () { $('admLog').textContent = '(log dibersihkan)'; };
 
   window.muaiUsers = async function () {
-    const tbody = document.querySelector('#tblUsers tbody');
-    tbody.innerHTML = '<tr><td colspan="4" class="hint-text">Memuat…</td></tr>';
+    const ul = $('admUserList');
+    ul.innerHTML = '<li class="hint-text">Memuat…</li>';
     try {
       const users = await GAS.listUsers();
-      tbody.innerHTML = users.map((u) => `
-        <tr>
-          <td>${esc(u.cabang)}</td>
-          <td class="cell-truncate">${esc(u.email)}</td>
-          <td><span class="chip chip-role">${esc(u.role)}</span></td>
-          <td><button class="btn btn-danger btn-sm" onclick="hapusUser('${u.email.replace(/'/g, "\\'")}')">Hapus</button></td>
-        </tr>`).join('') || '<tr><td colspan="4" class="hint-text">Belum ada user.</td></tr>';
+      $('admJumlah').textContent = users.length;
+      if (admStatusIdle()) setStatusKoneksi('ok', 'Terhubung');
+      ul.innerHTML = users.map((u) => `
+        <li class="user-row">
+          <div style="min-width:0"><span class="user-cabang">${esc(u.cabang)}</span><span class="user-email">${esc(u.email)}</span></div>
+          <span class="chip chip-role">${esc(u.role)}</span>
+          <button class="btn btn-pill btn-sm btn-danger-ghost" data-email="${esc(u.email)}" onclick="hapusUser(this.dataset.email)"
+                  aria-label="Hapus ${esc(u.email)}">Hapus</button>
+        </li>`).join('') || '<li class="hint-text">Belum ada user.</li>';
     } catch (e) {
-      tbody.innerHTML = `<tr><td colspan="4" class="hint-text">Gagal memuat: ${esc(e.message)}</td></tr>`;
+      $('admJumlah').textContent = '0';
+      setStatusKoneksi('bad', e.jaringan ? 'Tidak ada koneksi' : 'Gagal');
+      ul.innerHTML = '<li class="hint-text">Gagal memuat: ' + esc(e.message) + '</li>';
     }
   };
+  const admStatusIdle = () => $('admStatus').getAttribute('data-state') !== 'loading';
 
   window.tambahUser = async function () {
     const u = {
@@ -1250,7 +1438,7 @@
     if (!u.cabang || !u.email || u.pass.length < 6) { toast('Lengkapi data (sandi ≥6)', 'error'); return; }
     try {
       await GAS.addUser(u);
-      toast('Akun ' + u.email + ' dibuat — user bisa langsung login');
+      toast('Akun ' + u.email + ' dibuat — user bisa langsung login', 'ok');
       $('admCabang').value = ''; $('admEmail').value = ''; $('admPass').value = '';
       muaiUsers();
     } catch (e) { toast('Gagal: ' + e.message, 'error'); }
@@ -1258,19 +1446,14 @@
 
   window.hapusUser = async function (email) {
     if (!confirm('Hapus akun ' + email + '?')) return;
-    try { await GAS.deleteUser(email); toast('User dihapus'); muaiUsers(); }
+    try { await GAS.deleteUser(email); toast('User dihapus', 'ok'); muaiUsers(); }
     catch (e) { toast('Gagal: ' + e.message, 'error'); }
   };
 
   /* ================= INIT ================= */
   document.addEventListener('DOMContentLoaded', function () {
     terapkanTheme(document.documentElement.getAttribute('data-theme') === 'dark', false); // sinkronkan posisi slider
-    // Tampilkan URL Web App (dikunci di js/gas.js) pada halaman Admin, hanya-baca
-    const urlNow = GAS.getUrl();
-    ['gasUrl'].forEach((idEl) => {
-      const el = $(idEl);
-      if (el && urlNow) el.value = urlNow;
-    });
+    isiGasUrl(); // URL Web App (dikunci di js/gas.js) pada halaman Admin, hanya-baca
 
     // Gate RBAC: jika belum ada sesi valid, tahan di layar login.
     const s = GAS.getSession();
