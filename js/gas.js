@@ -77,7 +77,21 @@
     setSession(d.session);
     return d.user; // {email, nama, cabang, role}
   }
-  function logout() { setSession(null); }
+  function logout() {
+    const tok = (getSession() || {}).token;
+    setSession(null);
+    const url = getUrl();
+    if (tok && URL_RE.test(url) && typeof fetch === 'function') {
+      // Cabut sesi di server (best-effort). keepalive: tetap terkirim walau halaman langsung dimuat ulang.
+      try {
+        fetch(url, {
+          method: 'POST', credentials: 'omit', keepalive: true,
+          headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+          body: new URLSearchParams({ action: 'logout', token: tok, payload: '{}' }).toString(),
+        }).catch(() => {});
+      } catch (e) { /* abaikan */ }
+    }
+  }
 
   /* ---------------- Admin: Cabang/User dinamis ---------------- */
   const listUsers = () => call('listUsers');

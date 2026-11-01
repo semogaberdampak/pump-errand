@@ -63,6 +63,7 @@
       </div>
       <h1 class="login-title">Pencatatan Pameran</h1>
       <p class="login-sub">Masuk dengan akun cabang yang dibuatkan Admin.</p>
+      <p class="info-banner" id="loginPesan" role="status" style="display:none"></p>
       <form id="frmLogin" onsubmit="return aksiLogin(event)">
         <label class="field"><span>Email / ID user</span>
           <input type="email" id="loginEmail" required autocomplete="username" inputmode="email" placeholder="nama@cabang.id">
@@ -183,13 +184,15 @@
             Scan Barcode / QR
           </button>
           <div class="search-wrap">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-              <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
-            </svg>
             <label class="form-label" for="pmCari">Cari produk (nama / kode)</label>
-            <input type="text" id="pmCari" placeholder="Ketik nama, kode, atau ISBN…" autocomplete="off"
-                   oninput="cariProduk(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();cariEnter(this.value)}">
-            <div class="result-panel modal-overlay-none" id="pmHasilCari" style="display:none"></div>
+            <div class="search-field">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+              </svg>
+              <input type="text" id="pmCari" placeholder="Ketik nama, kode, atau ISBN…" autocomplete="off"
+                     oninput="cariProduk(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();cariEnter(this.value)}">
+            </div>
+            <div class="result-panel" id="pmHasilCari" style="display:none" aria-live="polite"></div>
           </div>
 
           <div id="pmProdukInfo" style="display:none">

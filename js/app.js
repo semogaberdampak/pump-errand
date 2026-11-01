@@ -22,6 +22,14 @@
 
   /* ---------------- Util ---------------- */
   const $ = (id) => document.getElementById(id);
+  const isAdmin = () => !!(sesiUser && sesiUser.role === 'ADMIN');
+
+  // Sesi, aktivitas, dan halaman terakhir (disimpan di perangkat)
+  const K_AKTIF = 'pameran.aktifTerakhir';     // cap waktu aktivitas terakhir
+  const K_LAYAR = 'pameran.layar';             // halaman terakhir (dipulihkan saat dimuat ulang)
+  const K_PESAN = 'pameran.pesanLogin';        // pesan di layar login setelah keluar otomatis
+  const BATAS_IDLE_MS = 60 * 60 * 1000;        // keluar otomatis setelah 1 jam TANPA aktivitas
+  const PERINGATAN_MS = 60 * 1000;             // peringatan 60 detik sebelum keluar
 
   function rupiah(n) {
     return 'Rp ' + Number(n || 0).toLocaleString('id-ID');
@@ -72,6 +80,7 @@
     if (nama === 'pameran') { renderPameran(); syncProdukPameran(true); sinkronTransaksi(true); }
     if (nama === 'penginputan') renderPenginputan();
     if (nama === 'admin') muaiUsers();
+    if (sesiUser && nama !== 'login') Store.tulis(K_LAYAR, nama);   // state halaman
     window.scrollTo({ top: 0 });
   };
 
@@ -130,10 +139,10 @@
           <div class="btn-row" style="margin-top:8px">
             <button class="btn btn-pill btn-sm ${aktif ? 'btn-secondary' : 'btn-primary'}" onclick="bukaEvent('${e.id}')">${aktif ? 'Lanjut' : 'Buka'}</button>
             <button class="btn btn-pill btn-sm btn-ghost" onclick="selesaiEvent('${e.id}')">${e.selesai ? 'Buka lagi' : 'Selesai'}</button>
-            <button class="btn btn-pill btn-sm btn-danger" onclick="hapusEvent('${e.id}')" aria-label="Hapus pameran">
+            ${isAdmin() ? `<button class="btn btn-pill btn-sm btn-danger" onclick="hapusEvent('${e.id}')" aria-label="Hapus pameran">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 6 5 6 21 6"></polyline><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
               Hapus
-            </button>
+            </button>` : ''}
           </div>
         </div>`;
       })
@@ -185,6 +194,7 @@
   };
 
   window.hapusEvent = function (id) {
+    if (!isAdmin()) { toast('Hanya Admin yang dapat menghapus pameran', 'error'); return; }
     const ev = Store.getEvents().find((e) => e.id === id);
     if (!ev) return;
     showModalBox('Hapus pameran?', `<p>“${esc(ev.nama)}” beserta seluruh datanya akan dihapus permanen.</p>`,
@@ -195,6 +205,7 @@
   };
 
   window.konfirmasiHapusEvent = function (id) {
+    if (!isAdmin()) { tutupModal(); toast('Hanya Admin yang dapat menghapus pameran', 'error'); return; }
     Store.hapusEvent(id);
     try { Sync.buangEvent(id); } catch (e) { console.warn(e); }
     if (evtId === id) { evtId = null; $('homeEventInfo').textContent = ''; }
@@ -591,13 +602,14 @@
       if (!hasil.length) {
         panel.innerHTML = '<div class="result-item"><span class="result-sub">Tidak ada di produk pameran — tambahkan lewat sesi Persiapan</span></div>';
       } else {
-        panel.innerHTML = hasil.map((p) => `
+        panel.innerHTML = '<div class="result-head">' + hasil.length + ' produk — ketuk untuk memilih</div>' + hasil.map((p) => `
           <div class="result-item" data-kode="${esc(p.kode)}" onclick="pilihKode(this.dataset.kode)">
             <span class="result-nama">${esc(p.nama)}</span>
             <span class="result-sub"><span>${esc(p.kode)}</span><span>${rupiah(p.harga)}</span><span>stok ${stokTersisa(p.kode)}</span></span>
           </div>`).join('');
       }
       panel.style.display = '';
+      if (panel.scrollIntoView) panel.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); // tetap terlihat di atas keyboard
     }, 120);
   };
 
@@ -1325,6 +1337,8 @@
     isiGasUrl();
     $('homeEventInfo').textContent = user.cabang + ' · ' + user.nama;
     goScreen('home');
+    catatAktivitas();
+    mulaiPemantauIdle();
     Sync.flush(); // kirim antrean yang tertinggal (mis. saat sesi sebelumnya habis / offline)
   }
 
@@ -1345,9 +1359,118 @@
   };
 
   window.keluarLogin = function () {
+    try { localStorage.removeItem(K_AKTIF); localStorage.removeItem(K_LAYAR); } catch (e) { /* abaikan */ }
     GAS.logout();
     location.reload();
   };
+
+  /* ================= SESI: AUTO LOGOUT (idle 1 jam) & PULIH HALAMAN ================= */
+  let aktifTerakhir = Date.now();
+  let tulisAktifPada = 0;
+  let timerIdle = null;
+  let peringatanIdle = false;
+
+  function catatAktivitas() {
+    const kini = Date.now();
+    aktifTerakhir = kini;
+    if (kini - tulisAktifPada > 5000) {      // dibagikan antar tab lewat localStorage (maks. 1× per 5 dtk)
+      tulisAktifPada = kini;
+      try { localStorage.setItem(K_AKTIF, String(kini)); } catch (e) { /* abaikan */ }
+    }
+    if (peringatanIdle) { peringatanIdle = false; tutupModal(); } // beraktivitas → peringatan ditutup
+  }
+
+  function terakhirAktif() {
+    let t = aktifTerakhir;
+    try { t = Math.max(t, Number(localStorage.getItem(K_AKTIF)) || 0); } catch (e) { /* abaikan */ }
+    return t;
+  }
+
+  function periksaIdle() {
+    if (!sesiUser) return;
+    const idle = Date.now() - terakhirAktif();
+    if (idle >= BATAS_IDLE_MS) { akhiriSesiIdle(true); return; }
+    const sisa = BATAS_IDLE_MS - idle;
+    if (sisa <= PERINGATAN_MS) {
+      const detik = Math.ceil(sisa / 1000);
+      if (!peringatanIdle) {
+        peringatanIdle = true;
+        showModalBox('Masih di sini?', `<p>Tidak ada aktivitas. Anda akan <strong>keluar otomatis</strong> dalam <strong id="idleSisa">${detik}</strong> detik.</p>
+          <p class="rekap-note">Data yang belum tersinkron tetap aman di perangkat.</p>`,
+          '<button class="btn btn-primary btn-block" onclick="tetapMasuk()">Tetap masuk</button>');
+      } else {
+        const el = $('idleSisa');
+        if (el) el.textContent = detik;
+      }
+    }
+  }
+  window.periksaIdle = periksaIdle;
+  window.tetapMasuk = function () { catatAktivitas(); };
+
+  function mulaiPemantauIdle() {
+    if (timerIdle) return;
+    ['pointerdown', 'keydown', 'touchstart', 'wheel', 'scroll', 'input'].forEach((ev) =>
+      window.addEventListener(ev, catatAktivitas, { passive: true, capture: true }));
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) periksaIdle(); }); // HP baru dibuka lagi
+    timerIdle = setInterval(periksaIdle, 5000);
+  }
+
+  function tampilkanPesanLogin() {
+    let pesan = '';
+    try { pesan = localStorage.getItem(K_PESAN) || ''; localStorage.removeItem(K_PESAN); } catch (e) { /* abaikan */ }
+    const el = $('loginPesan');
+    if (!el) return;
+    el.textContent = pesan;
+    el.style.display = pesan ? '' : 'none';
+  }
+
+  // Keluar otomatis: cabut sesi (juga di server). Data & antrean sinkron tetap di perangkat.
+  function akhiriSesiIdle(muatUlang) {
+    try {
+      localStorage.setItem(K_PESAN, 'Anda keluar otomatis karena tidak aktif selama 1 jam. Data yang belum tersinkron tetap aman di perangkat dan terkirim setelah Anda masuk lagi.');
+      localStorage.removeItem(K_AKTIF);
+    } catch (e) { /* abaikan */ }
+    GAS.logout();
+    if (muatUlang) { location.reload(); return; }
+    sesiUser = null;
+    document.body.classList.remove('logged-in');
+    SCREENS.forEach((sc) => { const el = $('scr-' + sc); if (el) el.classList.toggle('active', sc === 'login'); });
+    tampilkanPesanLogin();
+  }
+
+  // Dipanggil saat halaman dimuat: periksa sesi, pulihkan pameran aktif & halaman terakhir
+  function pulihSesi() {
+    const s = GAS.getSession();
+    let layarPulih = null;
+    if (s && s.user) {
+      let t = 0;
+      try { t = Number(localStorage.getItem(K_AKTIF)) || 0; } catch (e) { /* abaikan */ }
+      if (t && Date.now() - t >= BATAS_IDLE_MS) { akhiriSesiIdle(false); }   // ditinggal >1 jam (mis. HP dimatikan)
+      else {
+        try { layarPulih = JSON.parse(localStorage.getItem(K_LAYAR) || 'null'); } catch (e) { layarPulih = null; }
+        tampilkanApp(s.user);
+      }
+    } else {
+      $('scr-login').classList.add('active');
+      tampilkanPesanLogin();
+    }
+
+    // Restore event aktif
+    const id = Store.getActiveId();
+    if (id && Store.getEvents().some((e) => e.id === id)) {
+      evtId = id;
+      const ev = Store.getActiveEvent();
+      $('homeEventInfo').textContent = ev.nama + ' · ' + ev.tanggal;
+    }
+    renderHome();
+
+    // Pulihkan halaman terakhir (hanya bila masih sah: Admin untuk /admin, pameran aktif untuk sesi pameran)
+    if (layarPulih && sesiUser && SCREENS.includes(layarPulih) && layarPulih !== 'login' && layarPulih !== 'home') {
+      const perluEvent = ['persiapan', 'pameran', 'penginputan'].includes(layarPulih);
+      if ((layarPulih !== 'admin' || isAdmin()) && (!perluEvent || evtId)) goScreen(layarPulih);
+    }
+  }
+  window.pulihSesi = pulihSesi;
 
   /* ================= HALAMAN ADMIN ================= */
   function catatLog(txt) {
@@ -1455,19 +1578,7 @@
     terapkanTheme(document.documentElement.getAttribute('data-theme') === 'dark', false); // sinkronkan posisi slider
     isiGasUrl(); // URL Web App (dikunci di js/gas.js) pada halaman Admin, hanya-baca
 
-    // Gate RBAC: jika belum ada sesi valid, tahan di layar login.
-    const s = GAS.getSession();
-    if (s && s.user) tampilkanApp(s.user);
-    else $('scr-login').classList.add('active');
-
-    // Restore event aktif
-    const id = Store.getActiveId();
-    if (id && Store.getEvents().some((e) => e.id === id)) {
-      evtId = id;
-      const ev = Store.getActiveEvent();
-      $('homeEventInfo').textContent = ev.nama + ' · ' + ev.tanggal;
-    }
-    renderHome();
+    pulihSesi(); // gate RBAC + auto logout + pulihkan pameran aktif & halaman terakhir
 
     // Shortcut pencarian: "/" fokus ke input cari
     // Shortcut tema: Ctrl+Shift+T

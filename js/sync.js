@@ -29,14 +29,23 @@
   let tick = 0;
   const pendengar = [];
 
+  // Antrean hanya dikirim oleh akun pembuatnya: server mencatat user & cabang dari sesi yang mengirim
+  const emailSaya = () => {
+    const s = (global.GAS && GAS.getSession()) || {};
+    return s.user && s.user.email ? String(s.user.email).toLowerCase() : '';
+  };
+  // Tanpa sesi sama sekali (mis. sesi habis) → tak ada "akun lain": antrean tetap dihitung agar lencana meminta login ulang
+  const milikSaya = (o) => !o.pemilik || !emailSaya() || o.pemilik === emailSaya();
+
   const baca = () => Store.baca(K_ANTREAN, []);
   const tulis = (q) => Store.tulis(K_ANTREAN, q);
 
   function ringkas(evId) {
     const q = baca().filter((o) => !evId || o.evId === evId);
     return {
-      menunggu: q.filter((o) => !o.gagal).length,
-      gagal: q.filter((o) => o.gagal).length,
+      menunggu: q.filter((o) => !o.gagal && milikSaya(o)).length,
+      gagal: q.filter((o) => o.gagal && milikSaya(o)).length,
+      lain: q.filter((o) => !milikSaya(o)).length,
       offline: typeof navigator !== 'undefined' && navigator.onLine === false,
       sesiHabis,
     };
@@ -56,7 +65,7 @@
 
   function tambah(op) {
     const q = baca();
-    q.push(Object.assign({ qid: Store.uid(), dibuat: new Date().toISOString(), gagal: null }, op));
+    q.push(Object.assign({ qid: Store.uid(), dibuat: new Date().toISOString(), gagal: null, pemilik: emailSaya() }, op));
     tulis(q);
     umumkan();
   }
@@ -73,12 +82,12 @@
   // Kirim antrean berurutan (FIFO). Berhenti bila koneksi/sesi bermasalah.
   async function flush() {
     if (jalan) return;
-    if (!baca().some((o) => !o.gagal)) { umumkan(); return; }
+    if (!baca().some((o) => !o.gagal && milikSaya(o))) { umumkan(); return; }
     if (!GAS.getSession()) { sesiHabis = true; umumkan(); return; }
     jalan = true;
     sesiHabis = false;
     try {
-      const antre = baca().filter((o) => !o.gagal);
+      const antre = baca().filter((o) => !o.gagal && milikSaya(o));
       for (const op of antre) {
         try {
           if (op.aksi === 'simpan') {

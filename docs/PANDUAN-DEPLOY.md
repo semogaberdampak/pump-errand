@@ -44,6 +44,14 @@ Setiap transaksi dikirim ke sheet ini (satu baris per item). Kolom: `event | cab
 
 Saat sesi **Persiapan** menyimpan produk, backend membuat sheet `produk_pameran_YYYY-MM-DD` (tanggal mulai pameran) dengan kolom `event | cabang | kode | isbn | nama | harga | jumlah | user | diperbarui`. Satu sheet dipakai bersama oleh semua cabang; tiap baris menyimpan cabangnya dan hanya terbaca oleh cabang itu. Scan ulang produk yang sama **memperbarui** barisnya (tidak dobel).
 
+## Sesi, keluar otomatis & hak akses
+
+- **Keluar otomatis setelah 1 jam tanpa aktivitas** (ketuk, ketik, geser layar). Satu menit sebelumnya muncul peringatan "Masih di sini?" dengan hitung mundur; menyentuh layar atau menekan *Tetap masuk* membatalkannya. Bila HP dimatikan / tab ditutup lebih dari 1 jam, saat dibuka lagi langsung ke layar login dengan pesan penjelasan. Batasnya bisa diubah lewat konstanta `BATAS_IDLE_MS` di `js/app.js`.
+- Saat keluar (otomatis maupun manual), token sesi **dicabut di server** juga, jadi tidak bisa dipakai lagi. Ini butuh backend versi terbaru (Deploy → New version). Tanpa itu, logout tetap jalan di aplikasi, tetapi token baru kedaluwarsa sendiri setelah 6 jam.
+- Data pameran dan antrean sinkron **tidak dihapus** saat keluar. Antrean hanya dikirim oleh akun pembuatnya, jadi bila akun lain login di HP yang sama, transaksi akun sebelumnya menunggu sampai akun itu login lagi (tidak salah atribusi kasir/cabang).
+- **Halaman terakhir dipulihkan** saat halaman dimuat ulang (mis. tetap di Pameran). Login baru selalu mulai dari Beranda. Halaman Admin hanya dipulihkan untuk Admin, dan halaman yang butuh pameran aktif kembali ke Beranda bila pamerannya sudah tidak ada.
+- **Hapus pameran hanya untuk Admin** (tombolnya tidak tampil untuk akun User dan ditolak bila dipanggil langsung). Daftar pameran tersimpan di perangkat, jadi ini kontrol di aplikasi; data di Google Sheet tidak ikut terhapus.
+
 ## Zona waktu
 
 Semua tampilan di aplikasi memakai **WIB (Asia/Jakarta)**, apa pun zona waktu HP. Semua cap waktu di sheet (`waktu`, `diperbarui`, `waktuBatal`, `dibuat`, log) ditulis sebagai teks `yyyy-MM-dd HH:mm:ss` WIB. Disarankan juga mengatur zona waktu proyek Apps Script ke Asia/Jakarta (Project Settings → Time zone).
@@ -132,6 +140,8 @@ Login sebagai Admin → tab **Admin**:
 | `⚠ js/sync.js tidak termuat` | File `js/sync.js` belum ter-commit / gagal dimuat | Commit file itu lalu muat ulang. Transaksi yang dibuat selagi file hilang hanya tersimpan di perangkat |
 | Scan / ketik produk: "Backend Apps Script belum versi terbaru" | Kode `.gs` belum di-deploy | Deploy → Manage deployments → ✏️ → New version → Deploy |
 | Kode barcode tidak ditemukan | Kode yang terbaca tidak ada di `produk_id`/`isbn` sheet Master | Lihat kode yang tampil di jendela "Produk tidak ditemukan"; samakan isi sheet Master atau cari dengan judul |
+| Keluar sendiri ke layar login | Tidak aktif ≥ 1 jam, atau sesi server berakhir | Login lagi; data & antrean tetap aman |
+| Tombol Hapus pameran tidak ada | Akun bukan Admin | Gunakan akun Admin |
 | `⚠ N gagal sinkron` | Server menolak (mis. produk/format tidak valid, bukan pembuat transaksi) | Ketuk lencana → baca alasan → *Coba lagi* / *Buang* |
 | `Sesi habis — login ulang untuk sinkron` | Sesi 6 jam berakhir | Login lagi; antrean terkirim otomatis |
 | `Produk sudah dipakai di transaksi aktif` | Ada transaksi aktif memakai produk itu (mungkin di HP lain) | Batalkan transaksinya dulu |

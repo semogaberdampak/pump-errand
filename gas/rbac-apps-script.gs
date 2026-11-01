@@ -69,6 +69,10 @@ var AKSI_ADMIN_ = ['listUsers', 'addUser', 'deleteUser', 'test', 'clearLog'];
 
 function route_(action, p, token) {
   if (action === 'login') return login_(p.email, p.pass);
+  if (action === 'logout') {                       // cabut token di server (logout manual / otomatis)
+    if (token) CacheService.getScriptCache().remove('sesi:' + token);
+    return { keluar: true };
+  }
   var s = requireLogin_(token);
   if (AKSI_ADMIN_.indexOf(action) >= 0 && s.role !== 'ADMIN') throw new Error('Halaman khusus Admin');
   p = paksaIdentitas_(p, s);
