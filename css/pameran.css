@@ -994,3 +994,78 @@ body:not(.logged-in) main.content { padding-bottom: var(--space-6); }
     transform: none;
   }
 }
+
+/* ============================================================
+   SCAN PRODUK (overlay kamera) · TRANSAKSI BARU · DISKON
+   ============================================================ */
+.scan-overlay {
+  position: fixed; inset: 0; z-index: 150;
+  display: none; overflow-y: auto; overscroll-behavior: contain;
+  background: #0B0B0B; color: #F2F2F0;
+}
+.scan-overlay.open { display: block; }
+body.scan-open { overflow: hidden; }
+.scan-box {
+  max-width: 540px; margin: 0 auto; min-height: 100%; box-sizing: border-box;
+  padding: calc(var(--space-3) + env(safe-area-inset-top, 0px)) var(--space-4) calc(var(--space-4) + var(--safe-area-bottom));
+  display: flex; flex-direction: column; gap: var(--space-3);
+}
+.scan-head { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.scan-title { margin: 0; font-size: var(--text-lg); font-weight: 800; }
+.scan-reader { width: 100%; min-height: 240px; border-radius: var(--radius-lg); overflow: hidden; background: #000; }
+.scan-reader video { width: 100% !important; }
+.scan-petunjuk, .scan-pesan { margin: 0; font-size: var(--text-sm); color: #C9C9C6; }
+.scan-pesan { color: #F6B4AE; }
+.scan-pesan:empty { display: none; }
+.scan-manual { align-items: center; }
+.scan-manual input { flex: 1 1 auto; }
+.scan-manual .btn { flex: 0 0 auto; min-width: 72px; }
+
+.trx-panel { display: flex; flex-direction: column; gap: var(--space-3); min-width: 0; }
+.trx-head { align-items: center; }
+
+.diskon-nilai { font-size: var(--text-lg); color: var(--alert); }
+
+.cart-item.cart-item-2 { flex-wrap: wrap; }
+.cart-line { flex: 1 0 100%; display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); }
+.cart-qty { display: inline-flex; align-items: center; gap: var(--space-1); }
+.cart-qty button {
+  width: 34px; height: 34px; border-radius: var(--radius-full); cursor: pointer;
+  border: 1px solid var(--accent-line); background: var(--btn-secondary-bg); color: var(--btn-secondary-text);
+  font-size: 18px; line-height: 1; display: inline-flex; align-items: center; justify-content: center;
+}
+.cart-qty button:active { transform: scale(0.92); }
+.cart-qty span { min-width: 28px; text-align: center; font-weight: 800; font-size: var(--text-md); }
+
+input[readonly].inp-readonly { background: var(--card-bg-sub); color: var(--text-muted); cursor: not-allowed; }
+.pp-grid { display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-2); }
+
+/* ---- Diskon per item, status sinkron, detail transaksi ---- */
+.cart-diskon { flex: 1 0 100%; display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: var(--space-2); }
+.cart-diskon select, .cart-diskon input { min-height: 40px; padding-top: 4px; padding-bottom: 4px; }
+.cart-rumus { flex: 1 0 100%; font-size: var(--text-xs); color: var(--text-muted); overflow-wrap: anywhere; }
+.cart-rumus:empty { display: none; }
+.cart-rumus.salah { color: var(--alert); font-weight: 700; }
+
+.sync-bar { display: flex; align-items: center; justify-content: space-between; gap: var(--space-2); min-width: 0; }
+.sync-bar .chip { cursor: pointer; font-family: inherit; min-width: 0; white-space: normal; text-align: left; }
+
+.info-banner {
+  padding: var(--space-3); border-radius: var(--radius-lg); font-size: var(--text-sm);
+  background: #FBF0D9; color: #7A5B00; border: 1px solid #E8CE8E; overflow-wrap: anywhere;
+}
+[data-theme="dark"] .info-banner { background: #332A10; color: #E8CE8E; border-color: #5C4B1E; }
+
+.detail-list { display: flex; flex-direction: column; }
+.detail-baris {
+  display: flex; justify-content: space-between; gap: var(--space-2); align-items: flex-start;
+  padding: var(--space-2) 0; border-bottom: 1px dashed var(--border-color); min-width: 0;
+}
+.detail-baris > div { min-width: 0; overflow-wrap: anywhere; }
+.detail-baris > strong { white-space: nowrap; }
+.data-item.deleted .data-nama { text-decoration: line-through; }
+
+/* ---- Slider tema, info scanner ---- */
+.tt-thumb svg { width: 14px; height: 14px; }
+.scan-terakhir { margin: 0; font-size: var(--text-sm); color: #8FD8D2; word-break: break-all; }
+.scan-terakhir:empty { display: none; }

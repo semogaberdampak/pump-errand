@@ -47,20 +47,27 @@
       reqId: 'r' + Date.now().toString(36) + (++seq),
       payload: JSON.stringify(payload || {}),
     });
-    const res = await fetch(url, {
-      method: 'POST',
-      credentials: 'omit',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: body.toString(),
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status + ' dari Apps Script');
-    const txt = await res.text();
+    // err.jaringan = true → gangguan koneksi/server (aman dicoba ulang); selain itu galat dari aplikasi
+    const gagalJaringan = (pesan) => { const e = new Error(pesan); e.jaringan = true; return e; };
+    let res;
+    try {
+      res = await fetch(url, {
+        method: 'POST',
+        credentials: 'omit',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: body.toString(),
+      });
+    } catch (e) { throw gagalJaringan('Tidak ada koneksi ke server'); }
+    if (!res.ok) throw gagalJaringan('HTTP ' + res.status + ' dari Apps Script');
+    let txt;
+    try { txt = await res.text(); } catch (e) { throw gagalJaringan('Respons terputus'); }
     let json;
     try { json = JSON.parse(txt); }
-    catch (e) { throw new Error('Respons bukan JSON (cek deploy /exec): ' + txt.slice(0, 120)); }
+    catch (e) { throw gagalJaringan('Respons bukan JSON (cek deploy /exec): ' + txt.slice(0, 120)); }
     // Cek kedaluwarsa sesi dengan kata kunci (lebih robust dari regex prefix yang rapuh)
-    if (!json.ok && /kedaluwarsa|login ulang|expired|session/i.test(json.error || '')) setSession(null);
-    if (!json.ok) { const err = new Error(json.error || 'Gagal'); err.code = json.code; throw err; }
+    const sesiHabis = !json.ok && /kedaluwarsa|login ulang|expired|session/i.test(json.error || '');
+    if (sesiHabis) setSession(null);
+    if (!json.ok) { const err = new Error(json.error || 'Gagal'); err.code = json.code; err.auth = sesiHabis; throw err; }
     return json.data;
   }
 
@@ -89,6 +96,17 @@
   const saveInputan = (p) => call('saveInputan', p);           // finalisasi penginputan
   const saveRekap = (p) => call('saveRekap', p);               // rekap akhir
 
+  /* Persiapan & Pameran: sheet Master → sheet produk_pameran_<tanggal> */
+  const cariMaster = (p) => call('cariMaster', p);                       // {q, exact?} → {exact, hasil[]}
+  const getProdukPameran = (p) => call('getProdukPameran', p);           // {event, tgl} → [{kode,isbn,nama,harga,jumlah}]
+  const simpanProdukPameran = (p) => call('simpanProdukPameran', p);     // {event, tgl, kode, harga, jumlah}
+  const hapusProdukPameran = (p) => call('hapusProdukPameran', p);       // {event, tgl, kode}
+
+  /* Transaksi pameran → sheet transaksi_pameran_<tanggal> */
+  const getTransaksiPameran = (p) => call('getTransaksiPameran', p);               // {event, tgl} → [trx]
+  const simpanTransaksiPameran = (p) => call('simpanTransaksiPameran', p);         // {event, tgl, trx} (idempotent per trx.id)
+  const batalkanTransaksiPameran = (p) => call('batalkanTransaksiPameran', p);     // {event, tgl, id, alasan}
+
   global.GAS = {
     getUrl, getSession, setSession, call,
     login, logout,
@@ -96,5 +114,7 @@
     getMasterProduk, savePrepScan, getPrepScans,
     saveTransaksi, getTransaksiList, tutupSetoran,
     saveInputan, saveRekap,
+    cariMaster, getProdukPameran, simpanProdukPameran, hapusProdukPameran,
+    getTransaksiPameran, simpanTransaksiPameran, batalkanTransaksiPameran,
   };
 })(window);

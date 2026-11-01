@@ -8,7 +8,8 @@
      pameran.events        → daftar event
      pameran.active        → id event yang sedang dibuka
      pameran.products      → master produk global
-     pameran.<id>.stokawal    → stok awal per produk (sesi Persiapan)
+     pameran.<id>.stokawal    → (lama) stok awal per produk
+     pameran.<id>.produkpameran → produk yang dibawa {kode,isbn,nama,harga,jumlah} (cache sheet produk_pameran_<tgl>)
      pameran.<id>.cek         → checklist persiapan
      pameran.<id>.transaksi   → transaksi penjualan (sesi pameran)
      pameran.<id>.inputan     → input manual qty (sesi Penginputan)
@@ -60,6 +61,25 @@
     }
   }
 
+  /* ---------------- Waktu WIB (Asia/Jakarta, UTC+7) ----------------
+     Seluruh tampilan & penentuan "hari ini" memakai WIB, apa pun zona waktu perangkat. */
+  const ZONA = 'Asia/Jakarta';
+  const bagianWIB = (d) => {
+    const dt = new Date(d == null ? Date.now() : d);
+    if (isNaN(dt.getTime())) return null;
+    const o = {};
+    new Intl.DateTimeFormat('en-GB', { timeZone: ZONA, year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
+      .formatToParts(dt).forEach((p) => { o[p.type] = p.value; });
+    return o;
+  };
+  function tglWIB(d) { const o = bagianWIB(d); return o ? o.year + '-' + o.month + '-' + o.day : ''; }          // YYYY-MM-DD
+  function jamWIB(d) { const o = bagianWIB(d); return o ? o.hour + ':' + o.minute + ' WIB' : '—'; }              // 14:05 WIB
+  function waktuWIB(d, detik) {                                                                                  // 31/10/2026 14:05 WIB
+    const o = bagianWIB(d);
+    return o ? o.day + '/' + o.month + '/' + o.year + ' ' + o.hour + ':' + o.minute + (detik ? ':' + o.second : '') + ' WIB' : '—';
+  }
+
   function uid() {
     return Date.now().toString(36) + Math.random().toString(36).slice(2, 7);
   }
@@ -70,10 +90,10 @@
 
   function buatEvent(nama, tanggal, catatan) {
     const list = getEvents();
-    const today = new Date().toISOString().slice(0, 10);
+    const today = tglWIB();
     const ev = {
       id: uid(),
-      nama: (nama || '').trim() || 'pameran ' + new Date().toLocaleDateString('id-ID'),
+      nama: (nama || '').trim() || 'pameran ' + tglWIB(),
       tanggal: tanggal || today,
       tglMulai: today,
       tglSelesai: today,
@@ -85,6 +105,7 @@
     setEvents(list);
     // inisialisasi data per-event
     tulis(PREFIX + ev.id + '.stokawal', {});
+    tulis(PREFIX + ev.id + '.produkpameran', []);
     tulis(PREFIX + ev.id + '.cek', CEK_DEFAULT.map((t) => ({ teks: t, done: false })));
     tulis(PREFIX + ev.id + '.transaksi', []);
     tulis(PREFIX + ev.id + '.inputan', []);
@@ -102,7 +123,7 @@
 
   function hapusEvent(id) {
     setEvents(getEvents().filter((e) => e.id !== id));
-    ['stokawal', 'cek', 'transaksi', 'inputan'].forEach((k) =>
+    ['stokawal', 'produkpameran', 'cek', 'transaksi', 'inputan'].forEach((k) =>
       localStorage.removeItem(PREFIX + id + '.' + k)
     );
     if (getActiveId() === id) setActiveId(null);
@@ -131,8 +152,43 @@
   function getTransaksi(id) { return baca(getKey(id, 'transaksi'), []); }
   function setTransaksi(id, list) { return tulis(getKey(id, 'transaksi'), list); }
 
+  // Ubah satu transaksi secara atomik (baca-ubah-tulis sinkron)
+  function ubahTransaksi(id, trxId, fn) {
+    const list = getTransaksi(id);
+    const t = list.find((x) => x.id === trxId);
+    if (!t) return null;
+    fn(t);
+    setTransaksi(id, list);
+    return t;
+  }
+
   function getInputan(id) { return baca(getKey(id, 'inputan'), []); }
   function setInputan(id, list) { return tulis(getKey(id, 'inputan'), list); }
+
+  /* ---------------- Produk yang dibawa ke pameran (hasil sesi Persiapan) ---------------- */
+  const normKode = (s) => String(s == null ? '' : s).replace(/[^0-9A-Za-z]/g, '').toUpperCase();
+
+  function getProdukPameran(id) { return baca(getKey(id, 'produkpameran'), []); }
+  function setProdukPameran(id, list) { return tulis(getKey(id, 'produkpameran'), list); }
+  function upsertProdukPameran(id, prod) {
+    const list = getProdukPameran(id);
+    const i = list.findIndex((p) => normKode(p.kode) === normKode(prod.kode));
+    if (i >= 0) list[i] = Object.assign({}, list[i], prod);
+    else list.push(prod);
+    setProdukPameran(id, list);
+    return list;
+  }
+  function hapusProdukPameranLokal(id, kode) {
+    const list = getProdukPameran(id).filter((p) => normKode(p.kode) !== normKode(kode));
+    setProdukPameran(id, list);
+    return list;
+  }
+  // Cocokkan hasil scan / ketikan dengan kode ATAU ISBN (abaikan tanda hubung & huruf besar-kecil)
+  function findProdukPameran(id, teks) {
+    const n = normKode(teks);
+    if (!n) return null;
+    return getProdukPameran(id).find((p) => normKode(p.kode) === n || (p.isbn && normKode(p.isbn) === n)) || null;
+  }
 
   /* ---------------- Master produk ---------------- */
   function getProducts() {
@@ -182,14 +238,15 @@
 
   global.Store = {
     CEK_DEFAULT,
-    baca, tulis, uid,
+    baca, tulis, uid, tglWIB, jamWIB, waktuWIB,
     getEvents, setEvents, buatEvent, updateEvent, hapusEvent,
     getActiveId, setActiveId, getActiveEvent,
     getStokAwal, setStokAwal,
     getCek, setCek,
-    getTransaksi, setTransaksi,
+    getTransaksi, setTransaksi, ubahTransaksi,
     getInputan, setInputan,
     getProducts, setProducts, upsertProduct, findProduct,
+    getProdukPameran, setProdukPameran, upsertProdukPameran, hapusProdukPameranLokal, findProdukPameran, normKode,
     unduhCSV,
   };
 })(window);

@@ -1,10 +1,14 @@
 /* ============================================================
    sw.js — Service Worker Pencatatan Pameran (PWA)
-   Strategi: network-first untuk navigasi & API, cache-first
-   untuk aset statis. Saat offline, halaman tetap terbuka dari
-   cache; panggilan Apps Script gagal dengan pesan jelas.
+   Strategi:
+   - Navigasi & file aplikasi (html/css/js): NETWORK-FIRST, lalu cache
+     bila offline. Perubahan kode langsung terpakai tanpa menaikkan
+     nomor cache; offline tetap bisa dibuka dari cache terakhir.
+   - vendor/ (library besar & tidak berubah): cache-first.
+   - POST ke Apps Script selalu langsung ke jaringan.
+   Instalasi toleran: satu file gagal di-cache tidak membatalkan SW.
    ============================================================ */
-const CACHE = 'pameran-v3';
+const CACHE = 'pameran-v6';
 const ASSETS = [
   './',
   './index.html',
@@ -13,13 +17,21 @@ const ASSETS = [
   './css/pameran.css',
   './js/gas.js',
   './js/store.js',
+  './js/sync.js',
+  './js/scanner.js',
   './js/app.js',
+  './vendor/html5-qrcode.min.js',
   './icons/icon-192.png',
   './icons/icon-512.png',
 ];
 
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(ASSETS)).then(() => self.skipWaiting()));
+  e.waitUntil(
+    caches.open(CACHE)
+      .then((c) => Promise.all(ASSETS.map((a) =>
+        c.add(new Request(a, { cache: 'reload' })).catch(() => console.warn('SW: tidak bisa menyimpan', a)))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (e) => {
@@ -32,30 +44,28 @@ self.addEventListener('activate', (e) => {
 
 self.addEventListener('fetch', (e) => {
   const req = e.request;
-  if (req.method !== 'GET') return; // POST ke Apps Script selalu langsung jaringan
+  if (req.method !== 'GET') return;
   const url = new URL(req.url);
+  if (url.origin !== location.origin) return;
 
-  // Navigasi: network-first, fallback cache (offline tetap bisa buka)
-  if (req.mode === 'navigate') {
+  // Library vendor: cache-first
+  if (url.pathname.includes('/vendor/')) {
     e.respondWith(
-      fetch(req).catch(() => caches.match('./index.html'))
+      caches.match(req).then((hit) => hit || fetch(req).then((res) => {
+        if (res.ok) { const k = res.clone(); caches.open(CACHE).then((c) => c.put(req, k)); }
+        return res;
+      }))
     );
     return;
   }
 
-  // Aset sama-origin: cache-first lalu isi cache
-  if (url.origin === location.origin) {
-    e.respondWith(
-      caches.match(req).then((hit) =>
-        hit ||
-        fetch(req).then((res) => {
-          if (res.ok) {
-            const clone = res.clone();
-            caches.open(CACHE).then((c) => c.put(req, clone));
-          }
-          return res;
-        }).catch(() => caches.match('./index.html'))
-      )
-    );
-  }
+  // Lainnya: network-first (selalu validasi ke server), cache sebagai cadangan offline
+  e.respondWith(
+    (req.mode === 'navigate' ? fetch(req) : fetch(req, { cache: 'no-cache' }))
+      .then((res) => {
+        if (res.ok) { const k = res.clone(); caches.open(CACHE).then((c) => c.put(req, k)); return res; }
+        return caches.match(req).then((hit) => hit || res);
+      })
+      .catch(() => caches.match(req).then((hit) => hit || caches.match('./index.html')))
+  );
 });

@@ -8,9 +8,17 @@
   'use strict';
 
   const THEME_KEY = 'pameran.theme';
+  // Bila js/sync.js gagal dimuat, aplikasi tetap hidup dan memberi peringatan jelas (tidak diam-diam kehilangan data)
+  const Sync = window.Sync || {
+    _stub: true, tambah() {}, flush: async () => {}, tarik: async () => false, onUbah() {}, onTick: null, mulaiOtomatis() {},
+    ringkas: () => ({ menunggu: 0, gagal: 0, offline: false, sesiHabis: false }), statusTrx: () => 'lokal',
+    daftar: () => [], cobaLagi: async () => {}, buang() {}, buangEvent() {},
+  };
   let evtId = null;          // id event aktif
   let keranjang = [];        // item transaksi yang belum disimpan
-  let produkTerpilih = null; // produk pada form tambah produk
+  let produkTerpilih = null; // produk yang dipilih pada form tambah ke keranjang
+  let produkMaster = null;   // produk dari sheet Master yang sedang dibuka di modal Persiapan
+  let trxAktif = false;      // panel "Transaksi Baru" sedang terbuka
 
   /* ---------------- Util ---------------- */
   const $ = (id) => document.getElementById(id);
@@ -40,7 +48,10 @@
       '<button class="btn btn-primary btn-block" onclick="tutupModal()">Tutup</button>';
     $('modalUmum').classList.add('open');
   }
-  window.tutupModal = function () { $('modalUmum').classList.remove('open'); };
+  window.tutupModal = function () {
+    $('modalUmum').classList.remove('open');
+    if (window.Scanner) Scanner.lanjut(); // modal ditutup → pemindaian boleh lanjut
+  };
 
   /* ---------------- Navigasi layar ---------------- */
   const SCREENS = ['login', 'home', 'persiapan', 'pameran', 'penginputan', 'admin'];
@@ -49,6 +60,7 @@
       const s = GAS.getSession();
       if (!s || !s.user || s.user.role !== 'ADMIN') { toast('Khusus Admin', 'error'); return; }
     }
+    if (window.Scanner && Scanner.sedangBuka()) Scanner.tutup();
     SCREENS.forEach((sc) => {
       const el = $('scr-' + sc);
       if (el) el.classList.toggle('active', sc === nama);
@@ -56,21 +68,26 @@
     document.querySelectorAll('.seg-nav button[data-screen]').forEach((b) => {
       b.classList.toggle('aktif', b.dataset.screen === nama);
     });
-    if (nama === 'persiapan') renderPersiapan();
-    if (nama === 'pameran') renderPameran();
+    if (nama === 'persiapan') { renderPersiapan(); syncProdukPameran(false); }
+    if (nama === 'pameran') { renderPameran(); syncProdukPameran(true); sinkronTransaksi(true); }
     if (nama === 'penginputan') renderPenginputan();
     if (nama === 'admin') muaiUsers();
     window.scrollTo({ top: 0 });
   };
 
   /* ---------------- Tema ---------------- */
-  function terapkanTheme(dark) {
+  function terapkanTheme(dark, animasi) {
     document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
     try { localStorage.setItem(THEME_KEY, dark ? 'dark' : 'light'); } catch (e) {}
+    const tb = document.getElementById('themeToggle');
+    if (tb) {
+      tb.setAttribute('aria-checked', dark ? 'true' : 'false');
+      if (animasi) { tb.classList.remove('tt-spin'); void tb.offsetWidth; tb.classList.add('tt-spin'); }
+    }
   }
   window.toggleTheme = function () {
     const dark = document.documentElement.getAttribute('data-theme') !== 'dark';
-    terapkanTheme(dark);
+    terapkanTheme(dark, true);
   };
 
   // Initialize theme on page load (before DOMContentLoaded to avoid flash)
@@ -124,7 +141,7 @@
   }
 
   window.buatEventBaru = function () {
-    const hariIni = new Date().toISOString().slice(0, 10);
+    const hariIni = Store.tglWIB();
     showModalBox('Buat Agenda Pameran Baru', `
       <div class="form-group"><label class="form-label" for="evNama">Judul pameran</label>
         <input type="text" id="evNama" placeholder="pameran Buku Oktober 2026"></div>
@@ -173,8 +190,17 @@
     showModalBox('Hapus pameran?', `<p>“${esc(ev.nama)}” beserta seluruh datanya akan dihapus permanen.</p>`,
       `<div class="btn-row">
         <button class="btn btn-secondary" onclick="tutupModal()">Batal</button>
-        <button class="btn btn-danger" onclick="Store.hapusEvent('${id}');renderHome();tutupModal();toast('Pameran dihapus')">Hapus</button>
+        <button class="btn btn-danger" onclick="konfirmasiHapusEvent('${id}')">Hapus</button>
       </div>`);
+  };
+
+  window.konfirmasiHapusEvent = function (id) {
+    Store.hapusEvent(id);
+    try { Sync.buangEvent(id); } catch (e) { console.warn(e); }
+    if (evtId === id) { evtId = null; $('homeEventInfo').textContent = ''; }
+    renderHome();
+    tutupModal();
+    toast('Pameran dihapus', 'ok');
   };
 
   window.selesaiEvent = function (id) {
@@ -218,8 +244,8 @@
         <button class="cart-remove" title="Hapus item" onclick="hapusCek(${i})">×</button>
       </li>`).join('');
 
-    // Stok awal per produk
-    renderStokAwal();
+    // Produk yang dibawa (dari sheet produk_pameran_<tanggal>)
+    renderProdukPameran();
   }
   window.renderPersiapan = renderPersiapan;
 
@@ -248,35 +274,197 @@
     renderPersiapan();
   };
 
-  function renderStokAwal() {
-    const stok = Store.getStokAwal(evtId);
-    const produk = Store.getProducts();
-    $('pspStokList').innerHTML = produk.map((p) => `
-      <div class="input-row">
-        <div style="min-width:0">
-          <strong style="font-size:var(--text-sm);display:block">${esc(p.nama)}</strong>
-          <span class="card-subtitle">${esc(p.kode)} · ${rupiah(p.harga)}</span>
-        </div>
-        <input class="inp-qty" type="number" min="0" inputmode="numeric" placeholder="0"
-               value="${stok[p.kode] != null ? stok[p.kode] : ''}"
-               onchange="setStokProduk('${p.kode.replace(/'/g, "\\'")}', this.value)" aria-label="Stok awal ${esc(p.nama)}">
-        <span class="chip">${esc(p.kategori)}</span>
-        <span></span>
-      </div>`).join('');
-    const totalStok = Object.values(stok).reduce((a, b) => a + Number(b || 0), 0);
+  /* ---- Produk yang dibawa: scan → sheet Master → modal → sheet produk_pameran_<tanggal> ---- */
+  let versiLokalPP = 0;        // naik tiap data lokal berubah; mencegah hasil sinkron lama menimpa data baru
+  let syncPPJalan = false;
+  let hasilMasterSementara = [];
+  let kodeHapusPP = null;
+
+  function produkEvent() { return evtId ? Store.getProdukPameran(evtId) : []; }
+
+  function renderProdukPameran() {
+    const produk = produkEvent();
+    const total = produk.reduce((a, p) => a + Number(p.jumlah || 0), 0);
     $('pspStat').innerHTML = `
       <div class="stat"><span class="stat-value">${produk.length}</span><span class="stat-label">Produk</span></div>
-      <div class="stat"><span class="stat-value">${totalStok}</span><span class="stat-label">Total stok</span></div>`;
+      <div class="stat"><span class="stat-value">${total}</span><span class="stat-label">Total dibawa</span></div>`;
+    $('pspStokList').innerHTML = produk.length
+      ? '<div class="data-list">' + produk.slice().reverse().map((p) => `
+        <div class="data-item">
+          <div class="data-top">
+            <span class="data-nama text-truncate-2">${esc(p.nama)}</span>
+            <span class="chip chip-teal">× ${Number(p.jumlah || 0)}</span>
+          </div>
+          <div class="data-meta"><span>${esc(p.kode)}</span><span>${rupiah(p.harga)}</span></div>
+          <div class="btn-row" style="margin-top:8px">
+            <button class="btn btn-pill btn-sm btn-secondary" data-kode="${esc(p.kode)}" onclick="ubahProdukPameran(this.dataset.kode)">Ubah</button>
+            <button class="btn btn-pill btn-sm btn-danger" data-kode="${esc(p.kode)}" onclick="hapusProdukPameran(this.dataset.kode)">Hapus</button>
+          </div>
+        </div>`).join('') + '</div>'
+      : '<div class="empty-state">Belum ada produk. Tekan “Scan Produk” atau ketik kode / judul di atas.</div>';
   }
 
-  window.setStokProduk = function (kode, val) {
-    const stok = Store.getStokAwal(evtId);
-    const n = parseInt(val, 10);
-    if (isNaN(n) || n < 0) delete stok[kode];
-    else stok[kode] = n;
-    Store.setStokAwal(evtId, stok);
-    renderStokAwal();
-    toast('Stok ' + kode + ' disimpan', 'ok');
+  // Tarik daftar produk event ini dari sheet (sumber kebenaran). Gagal/offline → pakai data di perangkat.
+  async function syncProdukPameran(diam) {
+    const ev = Store.getActiveEvent();
+    if (!ev || syncPPJalan) return;
+    syncPPJalan = true;
+    const versi = versiLokalPP;
+    try {
+      const list = await GAS.getProdukPameran({ event: ev.nama, tgl: ev.tglMulai });
+      if (versi === versiLokalPP && ev.id === evtId) {
+        Store.setProdukPameran(ev.id, list);
+        if (document.querySelector('#scr-persiapan.active')) renderProdukPameran();
+      }
+    } catch (err) {
+      console.warn('Sinkron produk pameran gagal:', err.message);
+      if (!diam) toast('Memakai data di perangkat — sinkron sheet gagal: ' + err.message, 'error');
+    } finally {
+      syncPPJalan = false;
+    }
+  }
+
+  window.bukaScanProduk = function () {
+    if (!butuhEvent()) return;
+    Scanner.buka({
+      judul: 'Scan produk fisik',
+      petunjuk: 'Arahkan kamera ke barcode / QR produk. Data ditarik dari sheet Master.',
+      onKode: (teks, sumber) => cariDanPilihMaster(teks, sumber === 'kamera'),
+    });
+  };
+  window.bukaModalProduk = window.bukaScanProduk; // tombol "Produk" di header semua sesi
+
+  window.cariMasterManual = async function () {
+    const inp = $('pspCariMaster');
+    const teks = (inp.value || '').trim();
+    if (!teks) return;
+    if (await cariDanPilihMaster(teks, false)) inp.value = '';
+  };
+
+  // true = modal dibuka (scanner ditahan sampai modal ditutup)
+  async function cariDanPilihMaster(teks, hanyaPersis) {
+    if (!butuhEvent()) return false;
+    toast('Mencari di sheet Master…');
+    let r;
+    try { r = await GAS.cariMaster({ q: teks, exact: !!hanyaPersis }); }
+    catch (err) { tampilkanGalatMaster(err); return true; }
+    if (r.exact) { bukaModalJumlah(r.exact); return true; }
+    if (r.hasil && r.hasil.length) { tampilkanPilihanMaster(r.hasil, r.total); return true; }
+    // Tidak ketemu: tampilkan di modal (bukan toast sekilas) beserta teks yang terbaca, supaya mudah ditelusuri
+    showModalBox('Produk tidak ditemukan', `
+      <p>${hanyaPersis ? 'Kode yang terbaca' : 'Yang dicari'}: <strong>${esc(String(teks).slice(0, 60))}</strong></p>
+      <p class="rekap-note">Tidak ada produk dengan <em>produk_id</em> / <em>isbn</em> tersebut${hanyaPersis ? '' : ' (atau judul yang mengandung kata itu)'} di sheet <strong>Master</strong>.
+      Periksa isi sheet Master, atau ketik judulnya di kolom pencarian.</p>`,
+      '<button class="btn btn-primary btn-block" onclick="tutupModal()">Tutup</button>');
+    return true;
+  }
+
+  function tampilkanGalatMaster(err) {
+    let pesan = esc(err.message || 'Galat tidak diketahui');
+    if (err.jaringan) pesan = 'Tidak ada koneksi ke server. Periksa internet lalu coba lagi.';
+    else if (/Aksi tidak dikenal/i.test(err.message || '')) {
+      pesan = 'Backend Apps Script belum versi terbaru. Buka Apps Script → <strong>Deploy → Manage deployments → ✏️ → New version → Deploy</strong>, lalu coba lagi.';
+    }
+    showModalBox('Gagal membaca sheet Master', '<p>' + pesan + '</p>',
+      '<button class="btn btn-primary btn-block" onclick="tutupModal()">Tutup</button>');
+  }
+
+  function tampilkanPilihanMaster(list, total) {
+    hasilMasterSementara = list;
+    const lebih = total && total > list.length ? '<p class="rekap-note">Menampilkan ' + list.length + ' dari ' + total + ' hasil — perjelas kata kunci untuk mempersempit.</p>' : '';
+    showModalBox('Pilih produk', lebih + '<div>' + list.map((m) => `
+      <div class="result-item" data-kode="${esc(m.kode)}" onclick="pilihDariMaster(this.dataset.kode)">
+        <span class="result-nama">${esc(m.nama)}</span>
+        <span class="result-sub"><span>${esc(m.kode)}</span><span>${rupiah(m.harga)}</span></span>
+      </div>`).join('') + '</div>',
+      '<button class="btn btn-secondary btn-block" onclick="tutupModal()">Batal</button>');
+  }
+
+  window.pilihDariMaster = function (kode) {
+    const m = hasilMasterSementara.find((x) => x.kode === kode);
+    if (m) bukaModalJumlah(m);
+  };
+
+  // Modal: kode & nama terkunci (tidak bisa diubah), harga & jumlah diisi user
+  function bukaModalJumlah(m) {
+    produkMaster = m;
+    const ada = produkEvent().find((p) => Store.normKode(p.kode) === Store.normKode(m.kode));
+    const harga = ada ? ada.harga : m.harga;
+    showModalBox('Produk Pameran', `
+      <div class="form-group"><label class="form-label" for="ppKode">Kode produk</label>
+        <input type="text" id="ppKode" class="inp-readonly" value="${esc(m.kode)}" readonly tabindex="-1"></div>
+      <div class="form-group"><label class="form-label" for="ppNama">Nama produk</label>
+        <input type="text" id="ppNama" class="inp-readonly" value="${esc(m.nama)}" readonly tabindex="-1"></div>
+      <div class="pp-grid">
+        <div class="form-group"><label class="form-label" for="ppHarga">Harga (Rp)</label>
+          <input type="number" id="ppHarga" min="0" step="1" inputmode="numeric" placeholder="0" value="${harga ? Number(harga) : ''}"></div>
+        <div class="form-group"><label class="form-label" for="ppJumlah">Jumlah dibawa</label>
+          <input type="number" id="ppJumlah" min="1" step="1" inputmode="numeric" placeholder="0" value="${ada ? Number(ada.jumlah) : ''}"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();simpanProdukPameran()}"></div>
+      </div>
+      ${ada ? '<p class="rekap-note">Produk ini sudah ada di daftar (' + Number(ada.jumlah) + ' pcs). Menyimpan akan memperbarui harga &amp; jumlah.</p>' : ''}
+    `, `<div class="btn-row">
+        <button class="btn btn-secondary" onclick="tutupModal()">Batal</button>
+        <button class="btn btn-primary" id="ppSimpan" onclick="simpanProdukPameran()">Simpan</button>
+      </div>`);
+    setTimeout(() => { const el = $(harga ? 'ppJumlah' : 'ppHarga'); if (el) el.focus(); }, 60);
+  }
+
+  window.simpanProdukPameran = async function () {
+    if (!butuhEvent() || !produkMaster) return;
+    const harga = Number($('ppHarga').value);
+    const jumlah = Number($('ppJumlah').value);
+    if ($('ppHarga').value === '' || !Number.isInteger(harga) || harga < 0) { toast('Harga harus bilangan bulat ≥ 0', 'error'); return; }
+    if (!Number.isInteger(jumlah) || jumlah < 1) { toast('Jumlah dibawa minimal 1', 'error'); return; }
+    const ev = Store.getActiveEvent();
+    const btn = $('ppSimpan');
+    btn.disabled = true; btn.textContent = 'Menyimpan…';
+    try {
+      const r = await GAS.simpanProdukPameran({ event: ev.nama, tgl: ev.tglMulai, kode: produkMaster.kode, harga, jumlah });
+      Store.upsertProdukPameran(evtId, r.produk);
+      versiLokalPP++;
+      tutupModal();
+      renderProdukPameran();
+      if (document.querySelector('#scr-penginputan.active')) renderPenginputan();
+      toast((r.diperbarui ? 'Diperbarui: ' : 'Tersimpan: ') + r.produk.nama.slice(0, 30) + ' × ' + r.produk.jumlah, 'ok');
+    } catch (err) {
+      toast('Gagal simpan ke sheet: ' + err.message, 'error');
+      btn.disabled = false; btn.textContent = 'Simpan';
+    }
+  };
+
+  window.ubahProdukPameran = function (kode) {
+    const p = produkEvent().find((x) => x.kode === kode);
+    if (p) bukaModalJumlah({ kode: p.kode, isbn: p.isbn, nama: p.nama, harga: p.harga });
+  };
+
+  window.hapusProdukPameran = function (kode) {
+    const p = produkEvent().find((x) => x.kode === kode);
+    if (!p) return;
+    const dipakai = Store.getTransaksi(evtId).some((t) => !t.deleted && t.items.some((i) => i.kode === kode)) ||
+                    Store.getInputan(evtId).some((x) => !x.deleted && x.kode === kode);
+    if (dipakai) { toast('Tidak bisa dihapus: produk sudah dipakai di transaksi / input', 'error'); return; }
+    kodeHapusPP = kode;
+    showModalBox('Hapus dari daftar?', `<p>“${esc(p.nama)}” (${esc(p.kode)}) akan dihapus dari sheet produk pameran.</p>`,
+      `<div class="btn-row">
+        <button class="btn btn-secondary" onclick="tutupModal()">Batal</button>
+        <button class="btn btn-danger" onclick="konfirmasiHapusProduk()">Hapus</button>
+      </div>`);
+  };
+
+  window.konfirmasiHapusProduk = async function () {
+    const ev = Store.getActiveEvent();
+    if (!ev || !kodeHapusPP) return;
+    try {
+      await GAS.hapusProdukPameran({ event: ev.nama, tgl: ev.tglMulai, kode: kodeHapusPP });
+      Store.hapusProdukPameranLokal(evtId, kodeHapusPP);
+      versiLokalPP++;
+      tutupModal();
+      renderProdukPameran();
+      toast('Produk dihapus dari daftar', 'ok');
+    } catch (err) {
+      toast('Gagal menghapus: ' + err.message, 'error');
+    }
   };
 
   /* ================= SESI 2 — PAMERAN ================= */
@@ -285,20 +473,37 @@
   function renderPameran() {
     if (!butuhEvent()) return;
     // Gerbang waktu: sesi pameran hanya terbuka pada rentang tanggal agenda
-    // Gunakan tanggal lokal (bukan UTC) karena input date dari user juga lokal
+    // Tanggal acuan = WIB (Asia/Jakarta)
     const ev = Store.getEvents().find((e) => e.id === evtId);
     if (ev && ev.tglMulai) {
-      const hariIni = new Date().toLocaleDateString('en-CA'); // YYYY-MM-DD di zona waktu lokal
+      const hariIni = Store.tglWIB(); // YYYY-MM-DD zona WIB
       if (hariIni < ev.tglMulai || hariIni > (ev.tglSelesai || ev.tglMulai)) {
         toast('Sesi pameran baru terbuka saat hari-H (' + ev.tanggal + ')', 'error');
         goScreen('persiapan');
         return;
       }
     }
+    trxAktif = trxAktif || keranjang.length > 0;
+    renderSyncBar();
+    renderPanelTransaksi();
     renderKeranjang();
     renderRiwayatTransaksi();
   }
   window.renderPameran = renderPameran;
+
+  // Sisa stok tercatat = jumlah dibawa − terjual + input manual − yang sudah ada di keranjang
+  function stokTersisa(kode) {
+    const p = produkEvent().find((x) => x.kode === kode);
+    if (!p) return 0;
+    let terjual = 0, masuk = 0;
+    Store.getTransaksi(evtId).forEach((t) => {
+      // transaksi dibatalkan → stok kembali; transaksi yang sedang dikoreksi dihitung ulang lewat keranjang
+      if (!t.deleted && t.id !== koreksiDari) t.items.forEach((i) => { if (i.kode === kode) terjual += i.qty; });
+    });
+    Store.getInputan(evtId).forEach((x) => { if (!x.deleted && x.kode === kode) masuk += x.qty; });
+    const diKeranjang = keranjang.filter((k) => k.produk.kode === kode).reduce((a, k) => a + k.qty, 0);
+    return Number(p.jumlah || 0) - terjual + masuk - diKeranjang;
+  }
 
   window.cariProduk = function (q) {
     clearTimeout(hasilCariTimer);
@@ -306,16 +511,19 @@
       const panel = $('pmHasilCari');
       const kata = (q || '').trim().toLowerCase();
       if (!kata) { panel.style.display = 'none'; panel.innerHTML = ''; return; }
-      const hasil = Store.getProducts().filter(
-        (p) => p.nama.toLowerCase().includes(kata) || p.kode.toLowerCase().includes(kata)
+      const nk = Store.normKode(kata);
+      // Hanya produk yang dibawa ke pameran (sheet produk_pameran_<tanggal>)
+      const hasil = produkEvent().filter((p) =>
+        p.nama.toLowerCase().includes(kata) || p.kode.toLowerCase().includes(kata) ||
+        (nk && (Store.normKode(p.kode).includes(nk) || Store.normKode(p.isbn).includes(nk)))
       ).slice(0, 20);
       if (!hasil.length) {
-        panel.innerHTML = '<div class="result-item"><span class="result-sub">Tidak ditemukan — tambahkan lewat "Produk Baru"</span></div>';
+        panel.innerHTML = '<div class="result-item"><span class="result-sub">Tidak ada di produk pameran — tambahkan lewat sesi Persiapan</span></div>';
       } else {
         panel.innerHTML = hasil.map((p) => `
           <div class="result-item" data-kode="${esc(p.kode)}" onclick="pilihKode(this.dataset.kode)">
             <span class="result-nama">${esc(p.nama)}</span>
-            <span class="result-sub"><span>${esc(p.kode)}</span><span>${rupiah(p.harga)}</span><span>${esc(p.kategori)}</span></span>
+            <span class="result-sub"><span>${esc(p.kode)}</span><span>${rupiah(p.harga)}</span><span>stok ${stokTersisa(p.kode)}</span></span>
           </div>`).join('');
       }
       panel.style.display = '';
@@ -329,7 +537,7 @@
   };
 
   window.pilihKode = function (kode) {
-    const p = Store.findProduct(kode);
+    const p = Store.findProdukPameran(evtId, kode);
     if (p) pilihProduk(p);
   };
 
@@ -339,7 +547,7 @@
     produkTerpilih = p;
     $('pmProdukInfo').style.display = '';
     $('pmProdukNama').textContent = p.nama;
-    $('pmProdukSub').textContent = p.kode + ' · ' + rupiah(p.harga);
+    $('pmProdukSub').textContent = p.kode + ' · ' + rupiah(p.harga) + ' · stok ' + stokTersisa(p.kode);
     $('pmQty').value = 1;
     $('pmQty').focus();
   };
@@ -357,12 +565,15 @@
     const ket = ($('pmCatatanItem').value || '').trim();
     const idx = keranjang.findIndex((k) => k.produk.kode === produkTerpilih.kode && k.catatan === ket);
     if (idx >= 0) keranjang[idx].qty += qty;
-    else keranjang.push({ produk: produkTerpilih, qty, catatan: ket });
+    else keranjang.push({ produk: produkTerpilih, qty, catatan: ket, diskonTipe: 'PERSEN', diskonNilai: 0 });
+    const kodeTambah = produkTerpilih.kode;
     $('pmCatatanItem').value = '';
     produkTerpilih = null;
     $('pmProdukInfo').style.display = 'none';
     renderKeranjang();
-    toast('Ditambah ke keranjang', 'ok');
+    const sisa = stokTersisa(kodeTambah);
+    if (sisa < 0) toast('Ditambah, tetapi melebihi stok tercatat (selisih ' + Math.abs(sisa) + ' pcs)', 'error');
+    else toast('Ditambah ke keranjang', 'ok');
   };
 
   window.hapusKeranjang = function (i) {
@@ -370,93 +581,433 @@
     renderKeranjang();
   };
 
+  /* ---- Transaksi Baru ---- */
+  let koreksiDari = null;   // id transaksi yang sedang dikoreksi (bila ada)
+
+  function renderPanelTransaksi() {
+    $('pmTrxBaru').style.display = trxAktif ? '' : 'none';
+    $('pmBtnBaru').style.display = trxAktif ? 'none' : '';
+    $('pmJudulTrx').textContent = koreksiDari ? 'Koreksi Transaksi' : 'Transaksi Baru';
+    const info = $('pmKoreksiInfo');
+    info.style.display = koreksiDari ? '' : 'none';
+    if (koreksiDari) info.textContent = 'Mengoreksi transaksi #' + kodePendek(koreksiDari) + '. Transaksi lama otomatis dibatalkan saat transaksi baru ini disimpan.';
+  }
+
+  const kodePendek = (id) => String(id).slice(-6).toUpperCase();
+
+  function resetFormTransaksi() {
+    keranjang = [];
+    produkTerpilih = null;
+    koreksiDari = null;
+    $('pmProdukInfo').style.display = 'none';
+    $('pmCari').value = '';
+    $('pmHasilCari').style.display = 'none';
+    $('pmCatatanItem').value = '';
+    $('pmMetode').value = 'TUNAI';
+    $('pmTunai').value = '';
+    $('pmTunai').style.display = '';
+  }
+
+  window.mulaiTransaksiBaru = async function () {
+    if (!butuhEvent()) return;
+    if (!produkEvent().length) await syncProdukPameran(true);
+    if (!produkEvent().length) { toast('Belum ada produk pameran — tambahkan dulu di sesi Persiapan', 'error'); return; }
+    trxAktif = true;
+    resetFormTransaksi();
+    renderPanelTransaksi();
+    renderKeranjang();
+    setTimeout(() => $('pmCari').focus(), 50);
+  };
+
+  window.batalTransaksi = function () {
+    const pesan = koreksiDari ? 'Batalkan koreksi? Transaksi lama tetap berlaku.' : 'Batalkan transaksi ini? Isi keranjang akan dikosongkan.';
+    if ((keranjang.length || koreksiDari) && !confirm(pesan)) return;
+    trxAktif = false;
+    resetFormTransaksi();
+    renderPanelTransaksi();
+    renderKeranjang();
+  };
+
+  // Tambah 1 pcs berdasarkan kode / ISBN (hasil scan, atau ketikan + Enter dari scanner hardware)
+  function tambahDariKode(teks, diam) {
+    const p = Store.findProdukPameran(evtId, teks);
+    if (!p) {
+      if (!diam) toast('“' + String(teks).slice(0, 40) + '” tidak ada di produk pameran', 'error');
+      return false;
+    }
+    const idx = keranjang.findIndex((k) => k.produk.kode === p.kode && !k.catatan);
+    if (idx >= 0) keranjang[idx].qty += 1;
+    else keranjang.push({ produk: p, qty: 1, catatan: '', diskonTipe: 'PERSEN', diskonNilai: 0 });
+    renderKeranjang();
+    const qty = keranjang.filter((k) => k.produk.kode === p.kode).reduce((a, k) => a + k.qty, 0);
+    const sisa = stokTersisa(p.kode);
+    toast(p.nama.slice(0, 40) + ' × ' + qty + (sisa < 0 ? ' — melebihi stok tercatat' : ''), sisa < 0 ? 'error' : 'ok');
+    return true;
+  }
+
+  window.cariEnter = function (teks) {
+    teks = (teks || '').trim();
+    if (!teks) return;
+    clearTimeout(hasilCariTimer);
+    if (tambahDariKode(teks, true)) { $('pmCari').value = ''; $('pmHasilCari').style.display = 'none'; }
+  };
+
+  window.bukaScanPameran = async function () {
+    if (!trxAktif) { await mulaiTransaksiBaru(); if (!trxAktif) return; }
+    Scanner.buka({
+      judul: 'Scan produk — transaksi',
+      petunjuk: 'Setiap scan menambah 1 pcs ke keranjang. Tutup bila sudah selesai.',
+      onKode: async (teks, sumber) => {
+        const manual = sumber === 'manual';
+        if (!tambahDariKode(teks, manual) && manual) {
+          // Ketikan bukan kode persis → tutup scanner dan tampilkan hasil pencarian
+          Scanner.tutup();
+          $('pmCari').value = teks;
+          cariProduk(teks);
+          $('pmCari').focus();
+        }
+        return false;
+      },
+    });
+  };
+
+  window.ubahQtyKeranjang = function (i, d) {
+    if (!keranjang[i]) return;
+    keranjang[i].qty = Math.max(1, keranjang[i].qty + d);
+    renderKeranjang();
+  };
+
+  /* ---- Hitungan PER ITEM ----
+     sub      = harga × qty
+     potongan = sub × persen / 100 (dibulatkan ke rupiah)  atau  nominal Rp untuk baris itu (maks. sub)
+     net      = sub − potongan          total = jumlah net semua baris */
+  function hitungBaris(k) {
+    const sub = k.qty * k.produk.harga;
+    const nilai = Math.max(0, Number(k.diskonNilai) || 0);
+    const rupiahTipe = k.diskonTipe === 'RUPIAH';
+    let pot = rupiahTipe ? Math.round(nilai) : Math.round((sub * Math.min(nilai, 100)) / 100 + 1e-9);
+    pot = Math.min(pot, sub);
+    return { sub, nilai, pot, net: sub - pot, salah: rupiahTipe ? nilai > sub : nilai > 100 };
+  }
+
+  function hitungTotal() {
+    let subtotal = 0, potongan = 0, total = 0, salah = null;
+    keranjang.forEach((k) => {
+      const b = hitungBaris(k);
+      subtotal += b.sub; potongan += b.pot; total += b.net;
+      if (b.salah && !salah) salah = k;
+    });
+    return { subtotal, potongan, total, salah };
+  }
+
+  function rumusBaris(k, b) {
+    if (b.salah) return k.diskonTipe === 'RUPIAH' ? 'Potongan melebihi subtotal item' : 'Diskon persen maksimum 100%';
+    if (!b.pot) return '';
+    return k.diskonTipe === 'RUPIAH'
+      ? rupiah(b.sub) + ' − ' + rupiah(b.pot) + ' = ' + rupiah(b.net)
+      : b.nilai + '% × ' + rupiah(b.sub) + ' = −' + rupiah(b.pot) + ' → ' + rupiah(b.net);
+  }
+
+  // Dipanggil tiap isian diskon berubah: hanya memperbarui angka (tidak merender ulang daftar → fokus ketikan aman)
+  window.renderTotal = function () {
+    const h = hitungTotal();
+    $('pmSubtotal').textContent = rupiah(h.subtotal);
+    $('pmDiskonRow').style.display = h.potongan > 0 ? '' : 'none';
+    $('pmDiskonRp').textContent = '− ' + rupiah(h.potongan);
+    $('pmTotRp').textContent = rupiah(h.total);
+    keranjang.forEach((k, i) => {
+      const b = hitungBaris(k);
+      const net = $('ci-net-' + i), rm = $('ci-rumus-' + i);
+      if (net) net.textContent = rupiah(b.net);
+      if (rm) { rm.textContent = rumusBaris(k, b); rm.classList.toggle('salah', b.salah); }
+    });
+    hitungKembalian();
+  };
+
+  window.ubahDiskonItem = function (i, bagian, nilai) {
+    const k = keranjang[i];
+    if (!k) return;
+    if (bagian === 'tipe') k.diskonTipe = nilai === 'RUPIAH' ? 'RUPIAH' : 'PERSEN';
+    else k.diskonNilai = nilai === '' ? 0 : (parseFloat(nilai) || 0);
+    renderTotal();
+  };
+
   function renderKeranjang() {
     const list = $('pmKeranjang');
     if (!keranjang.length) {
-      list.innerHTML = '<div class="empty-state">Keranjang kosong. Cari produk lalu tekan “Tambah ke Keranjang”.</div>';
+      list.innerHTML = '<div class="empty-state">Keranjang kosong. Scan atau cari produk, lalu tekan “Tambah ke Keranjang”.</div>';
     } else {
       list.innerHTML = '<ul class="cart-list">' + keranjang.map((k, i) => `
-        <li class="cart-item">
+        <li class="cart-item cart-item-2">
           <div class="cart-info">
-            <span class="cart-nama">${esc(k.produk.nama)} × ${k.qty}</span>
-            <span class="cart-sub">${esc(k.produk.kode)}${k.catatan ? ' · ' + esc(k.catatan) : ''}</span>
+            <span class="cart-nama">${esc(k.produk.nama)}</span>
+            <span class="cart-sub">${esc(k.produk.kode)} · ${rupiah(k.produk.harga)}${k.catatan ? ' · ' + esc(k.catatan) : ''}</span>
           </div>
-          <strong class="cart-price">${rupiah(k.produk.harga * k.qty)}</strong>
           <button class="cart-remove" onclick="hapusKeranjang(${i})" aria-label="Hapus">×</button>
+          <div class="cart-line">
+            <div class="cart-qty">
+              <button type="button" onclick="ubahQtyKeranjang(${i}, -1)" aria-label="Kurangi">−</button>
+              <span>${k.qty}</span>
+              <button type="button" onclick="ubahQtyKeranjang(${i}, 1)" aria-label="Tambah">+</button>
+            </div>
+            <strong class="cart-price" id="ci-net-${i}">${rupiah(k.qty * k.produk.harga)}</strong>
+          </div>
+          <div class="cart-diskon">
+            <select aria-label="Jenis diskon" onchange="ubahDiskonItem(${i}, 'tipe', this.value)">
+              <option value="PERSEN"${k.diskonTipe === 'RUPIAH' ? '' : ' selected'}>%</option>
+              <option value="RUPIAH"${k.diskonTipe === 'RUPIAH' ? ' selected' : ''}>Rp</option>
+            </select>
+            <input type="number" min="0" step="any" inputmode="decimal" placeholder="Diskon item (opsional)"
+                   value="${k.diskonNilai ? Number(k.diskonNilai) : ''}" oninput="ubahDiskonItem(${i}, 'nilai', this.value)" aria-label="Diskon ${esc(k.produk.nama)}">
+          </div>
+          <span class="cart-rumus" id="ci-rumus-${i}"></span>
         </li>`).join('') + '</ul>';
     }
-    const totalItem = keranjang.reduce((a, k) => a + k.qty, 0);
-    const totalRp = keranjang.reduce((a, k) => a + k.qty * k.produk.harga, 0);
-    $('pmTotItem').textContent = totalItem;
-    $('pmTotRp').textContent = rupiah(totalRp);
+    $('pmTotItem').textContent = keranjang.reduce((a, k) => a + k.qty, 0);
     $('pmBayarRow').style.display = keranjang.length ? '' : 'none';
+    renderTotal();
     updateBadgeNav();
   }
 
   window.simpanTransaksi = function () {
     if (!butuhEvent()) return;
-    if (!keranjang.length) { toast('Keranjang kosong', 'err'); return; }
-    const metodeEl = $('pmMetode');
-    const metode = (metodeEl ? metodeEl.value : '') || 'TUNAI';
-    const tunaiEl = $('pmTunai');
-    const bayar = tunaiEl ? parseFloat(tunaiEl.value) || 0 : 0;
-    const total = keranjang.reduce((a, k) => a + k.qty * k.produk.harga, 0);
-    const kasir = sesiUser ? (sesiUser.nama || sesiUser.email) : '—';
+    if (!keranjang.length) { toast('Keranjang kosong', 'error'); return; }
+    const h = hitungTotal();
+    if (h.salah) { toast('Diskon “' + h.salah.produk.nama.slice(0, 30) + '” tidak valid', 'error'); return; }
+    const metode = ($('pmMetode').value) || 'TUNAI';
+    const rawBayar = $('pmTunai').value;
+    let bayar = h.total; // non-tunai, atau tunai dikosongkan = uang pas
+    if (metode === 'TUNAI' && rawBayar !== '') {
+      bayar = parseFloat(rawBayar) || 0;
+      if (bayar < h.total) { toast('Uang diterima kurang ' + rupiah(h.total - bayar), 'error'); return; }
+    }
+    const ev = Store.getActiveEvent();
+    const email = sesiUser ? sesiUser.email : '';
+    const id = Store.uid();
+    const waktu = new Date().toISOString();
+    const items = keranjang.map((k) => {
+      const b = hitungBaris(k);
+      return { kode: k.produk.kode, nama: k.produk.nama, harga: k.produk.harga, qty: k.qty, kategori: k.produk.kategori || '',
+               catatan: k.catatan, diskonTipe: k.diskonTipe === 'RUPIAH' ? 'RUPIAH' : 'PERSEN', diskonNilai: b.nilai, diskon: b.pot, net: b.net };
+    });
     const trx = {
-      id: Store.uid(),
-      waktu: new Date().toISOString(),
-      metode,
-      bayar: metode === 'TUNAI' ? bayar : total,
-      total,
-      items: keranjang.map((k) => ({ kode: k.produk.kode, nama: k.produk.nama, harga: k.produk.harga, qty: k.qty, kategori: k.produk.kategori, catatan: k.catatan })),
-      kasir,
+      id, waktu, metode,
+      subtotal: h.subtotal, diskon: h.potongan, total: h.total,   // total = setelah diskon per item (dipakai untuk omzet)
+      bayar, kembali: Math.max(0, bayar - h.total),
+      items,
+      kasir: sesiUser ? (sesiUser.nama || sesiUser.email) : '—',
+      kasirEmail: email,
+      menggantikan: koreksiDari || '',
       deleted: false,
+      sinkron: !Sync._stub,
     };
     const semua = Store.getTransaksi(evtId);
     semua.push(trx);
     Store.setTransaksi(evtId, semua);
-    keranjang = [];
-    if ($('pmTunai')) $('pmTunai').value = '';
+    if (koreksiDari) {
+      // transaksi lama ditandai batal di perangkat; di server dibatalkan bersama penyimpanan transaksi baru (satu proses)
+      Store.ubahTransaksi(evtId, koreksiDari, (t) => {
+        t.deleted = true;
+        t.batal = { alasan: 'Dikoreksi → #' + kodePendek(id), oleh: email, waktu };
+        t.diubahLokal = Date.now();
+      });
+    }
+    Sync.tambah({
+      aksi: 'simpan', evId: ev.id, event: ev.nama, tgl: ev.tglMulai, trxId: id,
+      payload: { trx: { id, waktu, metode, bayar, menggantikan: koreksiDari || '',
+        items: items.map((i) => ({ kode: i.kode, nama: i.nama, harga: i.harga, qty: i.qty, diskonTipe: i.diskonTipe, diskonNilai: i.diskonNilai })) } },
+    });
+    const koreksi = !!koreksiDari;
+    trxAktif = false;
+    resetFormTransaksi();
+    renderPanelTransaksi();
     renderKeranjang();
     renderRiwayatTransaksi();
-    toast('Transaksi disimpan (' + rupiah(total) + ')', 'ok');
+    toast((koreksi ? 'Koreksi disimpan (' : 'Transaksi disimpan (') + rupiah(h.total) + ')', 'ok');
+    Sync.flush();
   };
 
+  /* ---- Riwayat, detail, batal, koreksi ---- */
+  function bolehUbahTrx(t) {
+    if (!sesiUser) return false;
+    return sesiUser.role === 'ADMIN' || !t.kasirEmail || String(t.kasirEmail).toLowerCase() === String(sesiUser.email).toLowerCase();
+  }
+
+  function chipSinkron(t) {
+    const st = Sync.statusTrx(evtId, t);
+    if (st === 'tertunda') return '<span class="chip chip-warn">⏳ Menunggu kirim</span>';
+    if (st === 'gagal') return '<span class="chip chip-bad">⚠ Gagal sinkron</span>';
+    if (st === 'lokal') return '<span class="chip">Hanya di perangkat</span>';
+    return '';
+  }
+
   function renderRiwayatTransaksi() {
-    const semua = Store.getTransaksi(evtId).filter((t) => !t.deleted);
+    const semua = Store.getTransaksi(evtId);
+    const aktif = semua.filter((t) => !t.deleted);
     const box = $('pmRiwayat');
-    const hariIni = new Date().toISOString().slice(0, 10);
-    const hariIniTrx = semua.filter((t) => t.waktu.slice(0, 10) === hariIni);
+    const hariIni = Store.tglWIB();
+    const hariIniTrx = aktif.filter((t) => Store.tglWIB(t.waktu) === hariIni);
     $('pmStat').innerHTML = `
       <div class="stat"><span class="stat-value">${hariIniTrx.length}</span><span class="stat-label">Transaksi</span></div>
       <div class="stat"><span class="stat-value">${hariIniTrx.reduce((a, t) => a + t.items.reduce((x, i) => x + i.qty, 0), 0)}</span><span class="stat-label">Pcs terjual</span></div>
       <div class="stat"><span class="stat-value">${rupiah(hariIniTrx.reduce((a, t) => a + t.total, 0))}</span><span class="stat-label">Omzet</span></div>`;
     if (!semua.length) {
-      box.innerHTML = '<div class="empty-state">Belum ada transaksi hari ini.</div>';
+      box.innerHTML = '<div class="empty-state">Belum ada transaksi.</div>';
       return;
     }
-    box.innerHTML = '<div class="data-list">' + semua.slice().reverse().slice(0, 30).map((t) => `
-      <div class="data-item">
+    const urut = semua.slice().sort((a, b) => String(b.waktu).localeCompare(String(a.waktu))).slice(0, 30);
+    box.innerHTML = '<div class="data-list">' + urut.map((t) => `
+      <div class="data-item${t.deleted ? ' deleted' : ''}">
         <div class="data-top">
           <span class="data-nama">${rupiah(t.total)}</span>
-          <span class="data-time">${new Date(t.waktu).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
+          <span class="data-time">#${kodePendek(t.id)} · ${Store.jamWIB(t.waktu)}</span>
         </div>
         <div class="data-meta">
           <span class="chip ${t.metode === 'TUNAI' ? 'chip-ok' : 'chip-warn'}">${esc(t.metode)}</span>
+          ${t.deleted ? '<span class="chip chip-bad">Dibatalkan</span>' : ''}
+          ${t.menggantikan ? '<span class="chip">Koreksi</span>' : ''}
+          ${t.diskon ? '<span class="chip chip-warn">Diskon − ' + rupiah(t.diskon) + '</span>' : ''}
+          ${chipSinkron(t)}
           <span>${t.items.map((i) => esc(i.nama) + '×' + i.qty).join(', ')}</span>
         </div>
-        <button class="btn btn-pill btn-sm btn-danger" style="margin-top:8px" onclick="hapusTransaksi('${t.id}')">Hapus</button>
+        <button class="btn btn-pill btn-sm btn-secondary" style="margin-top:8px" data-id="${esc(t.id)}" onclick="detailTransaksi(this.dataset.id)">Detail</button>
       </div>`).join('') + '</div>';
   }
 
-  window.hapusTransaksi = function (id) {
-    const semua = Store.getTransaksi(evtId);
-    const t = semua.find((x) => x.id === id);
+  window.detailTransaksi = function (id) {
+    const t = Store.getTransaksi(evtId).find((x) => x.id === id);
     if (!t) return;
-    t.deleted = true;
-    Store.setTransaksi(evtId, semua);
+    const baris = t.items.map((i) => {
+      const net = i.net != null ? i.net : i.qty * i.harga;
+      const pot = i.diskon || 0;
+      return `<div class="detail-baris">
+        <div><strong>${esc(i.nama)}</strong><br><span class="cart-sub">${esc(i.kode)} · ${i.qty} × ${rupiah(i.harga)}${pot ? ' · diskon −' + rupiah(pot) + (i.diskonTipe === 'PERSEN' && i.diskonNilai ? ' (' + i.diskonNilai + '%)' : '') : ''}</span></div>
+        <strong>${rupiah(net)}</strong></div>`;
+    }).join('');
+    const sub = t.subtotal != null ? t.subtotal : t.items.reduce((a, i) => a + i.qty * i.harga, 0);
+    const boleh = !t.deleted && bolehUbahTrx(t);
+    showModalBox('Transaksi #' + kodePendek(t.id), `
+      <div class="detail-list">${baris}</div>
+      <div class="total-row"><span class="label">Subtotal</span><span class="value" style="font-size:var(--text-md)">${rupiah(sub)}</span></div>
+      ${t.diskon ? '<div class="total-row"><span class="label">Total diskon</span><span class="value" style="font-size:var(--text-md)">− ' + rupiah(t.diskon) + '</span></div>' : ''}
+      <div class="total-row grand"><span class="label">Total</span><span class="value">${rupiah(t.total)}</span></div>
+      <p class="rekap-note">${esc(t.metode)}${t.metode === 'TUNAI' ? ' · diterima ' + rupiah(t.bayar) + ' · kembali ' + rupiah(t.kembali || 0) : ''}<br>
+        ${Store.waktuWIB(t.waktu, true)} · ${esc(t.kasir || t.kasirEmail || '—')}${t.menggantikan ? '<br>Mengoreksi #' + kodePendek(t.menggantikan) : ''}</p>
+      ${t.deleted ? '<p class="rekap-note"><span class="chip chip-bad">Dibatalkan</span> ' + esc((t.batal && t.batal.alasan) || '') + (t.batal && t.batal.oleh ? ' — ' + esc(t.batal.oleh) : '') + '<br>Stok produk sudah dikembalikan.</p>' : ''}
+      ${chipSinkron(t)}`,
+      `<div class="btn-row">${boleh ? `
+        <button class="btn btn-secondary" onclick="koreksiTransaksi('${esc(t.id)}')">Koreksi</button>
+        <button class="btn btn-danger" onclick="batalkanTransaksi('${esc(t.id)}')">Batalkan</button>` : ''}
+        <button class="btn btn-primary" onclick="tutupModal()">Tutup</button></div>`);
+  };
+
+  window.batalkanTransaksi = function (id) {
+    const t = Store.getTransaksi(evtId).find((x) => x.id === id);
+    if (!t || t.deleted) return;
+    showModalBox('Batalkan transaksi?', `
+      <p>Transaksi #${kodePendek(t.id)} (${rupiah(t.total)}) dibatalkan dan <strong>stok produknya dikembalikan</strong>. Datanya tetap tersimpan sebagai riwayat.</p>
+      <div class="form-group"><label class="form-label" for="alasanJenis">Alasan</label>
+        <select id="alasanJenis"><option>Salah input</option><option>Pelanggan membatalkan</option><option>Retur</option><option>Lainnya</option></select></div>
+      <div class="form-group"><label class="form-label" for="alasanCatatan">Catatan (opsional)</label>
+        <input type="text" id="alasanCatatan" maxlength="120" placeholder="mis. salah scan buku"></div>`,
+      `<div class="btn-row">
+        <button class="btn btn-secondary" onclick="detailTransaksi('${esc(t.id)}')">Kembali</button>
+        <button class="btn btn-danger" onclick="konfirmasiBatalTransaksi('${esc(t.id)}')">Ya, batalkan</button>
+      </div>`);
+  };
+
+  window.konfirmasiBatalTransaksi = function (id) {
+    const t = Store.getTransaksi(evtId).find((x) => x.id === id);
+    if (!t || t.deleted) return;
+    const cat = ($('alasanCatatan').value || '').trim();
+    const alasan = $('alasanJenis').value + (cat ? ': ' + cat : '');
+    const ev = Store.getActiveEvent();
+    const email = sesiUser ? sesiUser.email : '';
+    Store.ubahTransaksi(evtId, id, (x) => {
+      x.deleted = true;
+      x.batal = { alasan, oleh: email, waktu: new Date().toISOString() };
+      x.diubahLokal = Date.now();
+    });
+    if (t.sinkron) {
+      Sync.tambah({ aksi: 'batal', evId: ev.id, event: ev.nama, tgl: ev.tglMulai, trxId: id, payload: { id, alasan } });
+    }
+    tutupModal();
     renderRiwayatTransaksi();
-    toast('Transaksi dihapus (soft-delete)', 'ok');
+    toast('Transaksi dibatalkan — stok dikembalikan', 'ok');
+    Sync.flush();
+  };
+
+  // Koreksi = muat isi transaksi ke keranjang; saat disimpan, transaksi lama otomatis dibatalkan
+  window.koreksiTransaksi = function (id) {
+    const t = Store.getTransaksi(evtId).find((x) => x.id === id);
+    if (!t || t.deleted) return;
+    if (trxAktif && keranjang.length && !confirm('Keranjang yang sedang dibuat akan diganti dengan isi transaksi ini. Lanjut?')) return;
+    tutupModal();
+    resetFormTransaksi();
+    keranjang = t.items.map((i) => ({
+      produk: { kode: i.kode, nama: i.nama, harga: i.harga, isbn: '', kategori: i.kategori || '' },
+      qty: i.qty, catatan: i.catatan || '',
+      diskonTipe: i.diskonTipe === 'RUPIAH' ? 'RUPIAH' : 'PERSEN',
+      diskonNilai: Number(i.diskonNilai) || 0,
+    }));
+    koreksiDari = id;
+    trxAktif = true;
+    $('pmMetode').value = t.metode || 'TUNAI';
+    $('pmTunai').style.display = $('pmMetode').value === 'TUNAI' ? '' : 'none';
+    renderPanelTransaksi();
+    renderKeranjang();
+    window.scrollTo({ top: 0 });
+  };
+
+  /* ---- Status sinkron ---- */
+  function renderSyncBar() {
+    const chip = $('pmSyncChip');
+    if (!chip || !evtId) return;
+    const r = Sync.ringkas(evtId);
+    let teks = '✓ Tersinkron', kelas = 'chip-ok';
+    if (Sync._stub) { teks = '⚠ js/sync.js tidak termuat — transaksi TIDAK dikirim ke Sheet'; kelas = 'chip-bad'; }
+    else if (r.sesiHabis) { teks = 'Sesi habis — login ulang untuk sinkron'; kelas = 'chip-bad'; }
+    else if (r.gagal) { teks = '⚠ ' + r.gagal + ' gagal sinkron'; kelas = 'chip-bad'; }
+    else if (r.menunggu) { teks = '⏳ ' + r.menunggu + ' menunggu kirim'; kelas = 'chip-warn'; }
+    if (r.offline) teks += ' · offline';
+    chip.textContent = teks;
+    chip.className = 'chip ' + kelas;
+  }
+
+  // Kirim antrean lalu tarik data terbaru dari sheet
+  async function sinkronTransaksi(diam) {
+    const ev = Store.getActiveEvent();
+    if (!ev) return;
+    await Sync.flush();
+    const ok = await Sync.tarik(ev);
+    renderSyncBar();
+    if (!diam) toast(ok ? 'Sinkron selesai' : 'Sinkron belum berhasil — akan dicoba lagi otomatis', ok ? 'ok' : 'error');
+  }
+  window.sinkronSekarang = function () { sinkronTransaksi(false); };
+
+  window.tampilkanStatusSync = function () {
+    const gagal = Sync.daftar(evtId).filter((o) => o.gagal);
+    const r = Sync.ringkas(evtId);
+    if (!gagal.length) {
+      showModalBox('Status sinkron',
+        `<p>${r.menunggu ? r.menunggu + ' transaksi menunggu dikirim ke Sheet. Dikirim otomatis saat koneksi tersedia.' : 'Semua transaksi sudah tersimpan di Sheet.'}</p>` +
+        (r.sesiHabis ? '<p>Sesi login habis. Keluar lalu login lagi agar antrean terkirim.</p>' : ''));
+      return;
+    }
+    showModalBox('Gagal sinkron', gagal.map((o) => `
+      <div class="data-item deleted" style="margin-bottom:8px">
+        <div class="data-nama">${o.aksi === 'simpan' ? 'Simpan' : 'Batalkan'} transaksi #${kodePendek(o.trxId)}</div>
+        <div class="data-meta"><span>${esc(o.gagal)}</span></div>
+        <div class="btn-row" style="margin-top:8px">
+          <button class="btn btn-pill btn-sm btn-secondary" data-q="${esc(o.qid)}" onclick="cobaLagiSync(this.dataset.q)">Coba lagi</button>
+          <button class="btn btn-pill btn-sm btn-danger" data-q="${esc(o.qid)}" onclick="buangSync(this.dataset.q)">Buang</button>
+        </div>
+      </div>`).join(''));
+  };
+  window.cobaLagiSync = async function (qid) { tutupModal(); await Sync.cobaLagi(qid); renderSyncBar(); };
+  window.buangSync = function (qid) {
+    if (!confirm('Buang antrean ini? Perubahan tersebut TIDAK akan sampai ke Sheet.')) return;
+    Sync.buang(qid); tutupModal(); renderSyncBar(); renderRiwayatTransaksi();
   };
 
   /* ================= SESI 3 — PENGINPUTAN ================= */
@@ -470,7 +1021,7 @@
 
   function renderFormInput() {
     const sel = $('piProduk');
-    const produk = Store.getProducts();
+    const produk = produkEvent();
     sel.innerHTML = '<option value="">— pilih produk —</option>' +
       produk.map((p) => `<option value="${esc(p.kode)}">${esc(p.kode)} — ${esc(p.nama)}</option>`).join('');
   }
@@ -484,7 +1035,7 @@
     if (!kode) { toast('Pilih produk', 'err'); return; }
     if (!qty || qty < 1) { toast('Jumlah tidak valid', 'err'); return; }
     if (!KATEGORI_VALID.includes(kat)) { toast('Kategori tidak valid', 'err'); return; }
-    const p = Store.findProduct(kode);
+    const p = Store.findProdukPameran(evtId, kode);
     const semua = Store.getInputan(evtId);
     semua.push({
       id: Store.uid(),
@@ -511,7 +1062,7 @@
       <div class="data-item">
         <div class="data-top">
           <span class="data-nama">+${x.qty} pcs — ${esc(x.nama)}</span>
-          <span class="data-time">${new Date(x.waktu).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}</span>
+          <span class="data-time">${Store.jamWIB(x.waktu)}</span>
         </div>
         <div class="data-meta"><span class="chip">${esc(x.kategori)}</span>${x.catatan ? '<span>' + esc(x.catatan) + '</span>' : ''}</div>
         <button class="btn btn-pill btn-sm btn-danger" style="margin-top:8px" onclick="hapusInput('${x.id}')">Hapus</button>
@@ -529,7 +1080,6 @@
   };
 
   function renderRekap() {
-    const stok = Store.getStokAwal(evtId);
     const trx = Store.getTransaksi(evtId).filter((t) => !t.deleted);
     const inputs = Store.getInputan(evtId).filter((x) => !x.deleted);
     const keluar = {};
@@ -538,9 +1088,10 @@
     inputs.forEach((x) => { masuk[x.kode] = (masuk[x.kode] || 0) + x.qty; });
 
     const rows = [['Kode', 'Produk', 'Kategori', 'Stok Awal', 'Terjual', 'Input Manual', 'Sisa Estimasi']];
-    Store.getProducts().forEach((p) => {
-      const aw = stok[p.kode] || 0, klr = keluar[p.kode] || 0, msk = masuk[p.kode] || 0;
-      rows.push([p.kode, p.nama, p.kategori, aw, klr, msk, aw - klr + msk]);
+    // Stok awal = jumlah dibawa (sesi Persiapan, sheet produk_pameran_<tanggal>)
+    produkEvent().forEach((p) => {
+      const aw = Number(p.jumlah || 0), klr = keluar[p.kode] || 0, msk = masuk[p.kode] || 0;
+      rows.push([p.kode, p.nama, p.kategori || '', aw, klr, msk, aw - klr + msk]);
     });
     $('piRekapNote').textContent =
       'Sisa estimasi = stok awal − terjual + input manual. Transaksi: ' + trx.length + ', input: ' + inputs.length + '.';
@@ -558,57 +1109,29 @@
   window.unduhTransaksiCsv = function () {
     if (!butuhEvent()) return;
     const trx = Store.getTransaksi(evtId).filter((t) => !t.deleted);
-    const rows = [['Waktu', 'Metode', 'Kode', 'Produk', 'Kategori', 'Qty', 'Harga', 'Subtotal', 'Catatan']];
+    // Total transaksi hanya di baris pertama tiap transaksi (agar tidak terhitung ganda saat dijumlah)
+    const rows = [['Waktu', 'Metode', 'Kode', 'Produk', 'Qty', 'Harga', 'Subtotal Item', 'Diskon Item (Rp)', 'Total Item (Rp)', 'Catatan', 'Total Transaksi (Rp)', 'ID Transaksi']];
     trx.forEach((t) =>
-      t.items.forEach((i) =>
-        rows.push([new Date(t.waktu).toLocaleString('id-ID'), t.metode, i.kode, i.nama, i.kategori, i.qty, i.harga, i.qty * i.harga, i.catatan || ''])
-      )
+      t.items.forEach((i, n) => {
+        const sub = i.qty * i.harga, pot = i.diskon || 0;
+        rows.push([Store.waktuWIB(t.waktu, true), t.metode, i.kode, i.nama, i.qty, i.harga, sub, pot,
+                   i.net != null ? i.net : sub - pot, i.catatan || '', n === 0 ? t.total : '', t.id]);
+      })
     );
-    Store.unduhCSV('transaksi-' + new Date().toISOString().slice(0, 10) + '.csv', rows);
+    Store.unduhCSV('transaksi-' + Store.tglWIB() + '.csv', rows);
     toast('CSV transaksi diunduh', 'ok');
   };
 
-  /* ================= PRODUK BARU ================= */
-  window.bukaModalProduk = function () {
-    showModalBox('Tambah / Perbarui Produk', `
-      <div class="form-group"><label class="form-label" for="pbKode">Kode</label>
-        <input type="text" id="pbKode" placeholder="B004"></div>
-      <div class="form-group"><label class="form-label" for="pbNama">Nama produk</label>
-        <input type="text" id="pbNama" placeholder="Nama produk"></div>
-      <div class="form-group"><label class="form-label" for="pbHarga">Harga (Rp)</label>
-        <input type="number" id="pbHarga" min="0" inputmode="numeric" placeholder="45000"></div>
-      <div class="form-group"><label class="form-label" for="pbKat">Kategori</label>
-        <select id="pbKat"><option>KANISIUS</option><option>NON_KANISIUS</option><option>EKSTERNAL</option></select></div>
-    `, `<div class="btn-row">
-        <button class="btn btn-secondary" onclick="tutupModal()">Batal</button>
-        <button class="btn btn-primary" onclick="simpanProduk()">Simpan</button>
-      </div>`);
-  };
-
-  window.simpanProduk = function () {
-    const kode = $('pbKode').value.trim();
-    const nama = $('pbNama').value.trim();
-    const harga = parseInt($('pbHarga').value, 10);
-    const kategori = $('pbKat').value;
-    const KATEGORI_VALID = ['KANISIUS', 'NON_KANISIUS', 'EKSTERNAL'];
-    if (!kode || !nama || !(harga >= 0)) { toast('Lengkapi kode, nama, dan harga', 'err'); return; }
-    if (!KATEGORI_VALID.includes(kategori)) { toast('Kategori tidak valid', 'err'); return; }
-    Store.upsertProduct({ kode, nama, harga, kategori });
-    tutupModal();
-    toast('Produk tersimpan', 'ok');
-    if (document.querySelector('#scr-persiapan.active')) renderPersiapan();
-    if (document.querySelector('#scr-penginputan.active')) renderPenginputan();
-  };
-
-
   /* ================= TAMBAHAN: kembalian, tabel rekap, selesai dari sesi ================= */
   window.hitungKembalian = function () {
-    const total = keranjang.reduce((a, k) => a + k.qty * k.produk.harga, 0);
-    const tunaiEl = $('pmTunai');
-    const bayar = tunaiEl ? parseFloat(tunaiEl.value) || 0 : 0;
-    const kembali = Math.max(0, bayar - total);
-    const kembaliEl = $('pmKembalian');
-    if (kembaliEl) kembaliEl.textContent = rupiah(kembali);
+    const total = hitungTotal().total;
+    const raw = $('pmTunai') ? $('pmTunai').value : '';
+    const bayar = raw === '' ? total : (parseFloat(raw) || 0); // kosong = uang pas
+    const selisih = bayar - total;
+    const lbl = $('pmKembalianLabel');
+    if (lbl) lbl.textContent = selisih < 0 ? 'Kurang' : 'Kembalian';
+    const el = $('pmKembalian');
+    if (el) el.textContent = rupiah(Math.abs(selisih));
   };
 
   window.tampilkanRekapTable = function () {
@@ -655,7 +1178,7 @@
     if (urlInput) urlInput.value = GAS.getUrl();
     $('homeEventInfo').textContent = user.cabang + ' · ' + user.nama;
     goScreen('home');
-    tarikMasterProduk();
+    Sync.flush(); // kirim antrean yang tertinggal (mis. saat sesi sebelumnya habis / offline)
   }
 
   window.aksiLogin = async function (e) {
@@ -679,32 +1202,10 @@
     location.reload();
   };
 
-  /* Tarik master produk dari sheet MasterProduk (tanpa data dummy). */
-  let masterProdukLoading = false;
-  async function tarikMasterProduk() {
-    if (masterProdukLoading) return; // Prevent race condition
-    masterProdukLoading = true;
-    try {
-      const rows = await GAS.getMasterProduk();
-      Store.setProducts(rows.map((r) => ({
-        kode: String(r.kode || '').trim().toUpperCase(),
-        nama: r.nama || '',
-        kategori: (r.kategori || 'KANISIUS').toUpperCase(),
-        harga: Number(r.harga || 0),
-      })));
-      toast('Master produk dimuat', 'ok');
-    } catch (err) {
-      console.warn('Master produk belum dapat diambil:', err.message);
-      toast('Gagal memuat master produk: ' + err.message, 'error');
-    } finally {
-      masterProdukLoading = false;
-    }
-  }
-
   /* ================= HALAMAN ADMIN ================= */
   function catatLog(txt) {
     const box = $('admLog');
-    box.textContent = new Date().toLocaleTimeString('id-ID') + ' ▸ ' + txt + '\n' + box.textContent;
+    box.textContent = Store.waktuWIB(Date.now(), true) + ' ▸ ' + txt + '\n' + box.textContent;
   }
 
   window.tesKoneksi = async function () {
@@ -763,6 +1264,7 @@
 
   /* ================= INIT ================= */
   document.addEventListener('DOMContentLoaded', function () {
+    terapkanTheme(document.documentElement.getAttribute('data-theme') === 'dark', false); // sinkronkan posisi slider
     // Tampilkan URL Web App (dikunci di js/gas.js) pada halaman Admin, hanya-baca
     const urlNow = GAS.getUrl();
     ['gasUrl'].forEach((idEl) => {
@@ -806,6 +1308,16 @@
         keluarLogin();
       }
     });
+
+    // Sinkron transaksi: render ulang saat antrean/data berubah; tarik data berkala saat layar Pameran terbuka
+    Sync.onUbah(function () {
+      renderSyncBar();
+      if (document.querySelector('#scr-pameran.active') && evtId) renderRiwayatTransaksi();
+    });
+    Sync.onTick = function () {
+      if (document.querySelector('#scr-pameran.active')) return Sync.tarik(Store.getActiveEvent());
+    };
+    Sync.mulaiOtomatis();
 
     // Klik luar modal menutup
     $('modalUmum').addEventListener('click', function (e) {

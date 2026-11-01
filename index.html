@@ -32,13 +32,15 @@
       <span id="homeEventInfo" class="app-brand-sub user-info"></span>
     </span>
     <div class="header-actions" style="display:flex; align-items:center; gap:var(--space-2);">
-      <button class="theme-toggle-btn" onclick="toggleTheme()" aria-label="Ganti tema terang/gelap" title="Ganti tema (Ctrl+Shift+T)">
-        <svg class="ic-sun" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
-        </svg>
-        <svg class="ic-moon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-          <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
-        </svg>
+      <button type="button" class="theme-toggle" id="themeToggle" role="switch" aria-checked="false" onclick="toggleTheme()" aria-label="Mode gelap" title="Ganti tema (Ctrl+Shift+T)">
+        <span class="tt-thumb">
+          <svg class="ic-sun" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+          </svg>
+          <svg class="ic-moon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path>
+          </svg>
+        </span>
       </button>
       <button class="btn btn-pill btn-secondary btn-icon-only logout-btn" onclick="keluarLogin()" aria-label="Keluar" title="Keluar (Ctrl+Shift+L)">
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
@@ -120,11 +122,20 @@
     </div>
 
     <div class="card">
-      <div class="card-header"><h3 class="card-title">Stok Awal Produk</h3></div>
+      <div class="card-header"><h3 class="card-title">Produk yang Dibawa</h3></div>
       <div class="card-body">
         <div class="stats-grid" id="pspStat"></div>
+        <button class="btn btn-primary btn-block btn-lg" onclick="bukaScanProduk()">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><line x1="7" y1="12" x2="17" y2="12"></line></svg>
+          Scan Produk
+        </button>
+        <div class="btn-row">
+          <input type="text" id="pspCariMaster" placeholder="Atau ketik kode / ISBN / judul…" autocomplete="off"
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();cariMasterManual()}" aria-label="Cari produk di sheet Master">
+          <button class="btn btn-pill btn-secondary btn-sm add-btn" onclick="cariMasterManual()">Cari</button>
+        </div>
         <div id="pspStokList"></div>
-        <p class="rekap-note">Isi jumlah stok yang dibawa ke booth. Angka ini menjadi dasar perhitungan sisa stok di sesi Penginputan.</p>
+        <p class="rekap-note">Scan produk fisik → data ditarik dari sheet <strong>Master</strong> → isi harga &amp; jumlah yang dibawa. Disimpan ke sheet <strong>produk_pameran_(tanggal)</strong> dan menjadi dasar stok awal serta daftar produk di sesi Pameran.</p>
       </div>
     </div>
 
@@ -138,24 +149,41 @@
   <section id="scr-pameran" class="screen" aria-labelledby="pmTitle">
     <div class="screen-header">
       <h2 id="pmTitle" class="screen-title text-truncate">Pameran — Transaksi</h2>
-      <button class="btn btn-pill btn-secondary btn-sm btn-icon-label" onclick="bukaModalProduk()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-        Produk
-      </button>
     </div>
     <div class="screen-body">
 
       <div class="stats-grid" id="pmStat"></div>
 
+      <div class="sync-bar">
+        <button type="button" class="chip chip-ok" id="pmSyncChip" onclick="tampilkanStatusSync()" aria-label="Status sinkron">✓ Tersinkron</button>
+        <button class="btn btn-pill btn-ghost btn-sm" onclick="sinkronSekarang()">Sinkron</button>
+      </div>
+
+      <button class="btn btn-primary btn-block btn-lg" id="pmBtnBaru" onclick="mulaiTransaksiBaru()">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        Transaksi Baru
+      </button>
+
+      <div class="trx-panel" id="pmTrxBaru" style="display:none">
+      <div class="data-top trx-head">
+        <h3 class="card-title" id="pmJudulTrx">Transaksi Baru</h3>
+        <button class="btn btn-pill btn-ghost btn-sm" onclick="batalTransaksi()">Batal</button>
+      </div>
+      <div class="info-banner" id="pmKoreksiInfo" style="display:none"></div>
+
       <div class="card">
         <div class="card-body">
+          <button class="btn btn-secondary btn-block" onclick="bukaScanPameran()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h2"></path><path d="M17 3h2a2 2 0 0 1 2 2v2"></path><path d="M21 17v2a2 2 0 0 1-2 2h-2"></path><path d="M7 21H5a2 2 0 0 1-2-2v-2"></path><line x1="7" y1="12" x2="17" y2="12"></line></svg>
+            Scan Barcode / QR
+          </button>
           <div class="search-wrap">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
             </svg>
             <label class="form-label" for="pmCari">Cari produk (nama / kode)</label>
-            <input type="text" id="pmCari" placeholder="Ketik nama atau kode produk…" autocomplete="off"
-                   oninput="cariProduk(this.value)">
+            <input type="text" id="pmCari" placeholder="Ketik nama, kode, atau ISBN…" autocomplete="off"
+                   oninput="cariProduk(this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault();cariEnter(this.value)}">
             <div class="result-panel modal-overlay-none" id="pmHasilCari" style="display:none"></div>
           </div>
 
@@ -175,7 +203,7 @@
             </div>
             <div class="form-group" style="margin-top:8px">
               <label class="form-label" for="pmCatatanItem">Catatan item (opsional)</label>
-              <input type="text" id="pmCatatanItem" placeholder="mis. diskon 10%">
+              <input type="text" id="pmCatatanItem" placeholder="mis. pesanan khusus">
             </div>
             <button class="btn btn-primary btn-block add-cart-btn" style="margin-top:8px" onclick="tambahKeKeranjang()">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="9" cy="21" r="1"></circle><circle cx="20" cy="21" r="1"></circle><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path></svg>
@@ -190,7 +218,9 @@
         <div class="card-body">
           <div id="pmKeranjang"></div>
           <div class="total-row"><span class="label">Total pcs</span><span class="value" id="pmTotItem">0</span></div>
-          <div class="total-row grand"><span class="label">Total rupiah</span><span class="value" id="pmTotRp">Rp 0</span></div>
+          <div class="total-row"><span class="label">Subtotal</span><span class="value" id="pmSubtotal">Rp 0</span></div>
+          <div class="total-row" id="pmDiskonRow" style="display:none"><span class="label">Total diskon (semua item)</span><span class="value diskon-nilai" id="pmDiskonRp">− Rp 0</span></div>
+          <div class="total-row grand"><span class="label">Total bayar</span><span class="value" id="pmTotRp">Rp 0</span></div>
 
           <div id="pmBayarRow" style="display:none" class="form-group">
             <label class="form-label" for="pmMetode">Metode bayar</label>
@@ -200,9 +230,9 @@
               <option value="DEBIT">Debit / EDC</option>
               <option value="TRANSFER">Transfer</option>
             </select>
-            <label class="form-label" for="pmTunai" style="margin-top:8px">Uang diterima (kembalian otomatis)</label>
+            <label class="form-label" for="pmTunai" style="margin-top:8px">Uang diterima (kosong = uang pas)</label>
             <input type="number" id="pmTunai" min="0" inputmode="numeric" placeholder="0" oninput="hitungKembalian()">
-            <div class="total-row"><span class="label">Kembalian</span><span class="value" id="pmKembalian">Rp 0</span></div>
+            <div class="total-row"><span class="label" id="pmKembalianLabel">Kembalian</span><span class="value" id="pmKembalian">Rp 0</span></div>
             <button class="btn btn-primary btn-block btn-lg save-trx-btn" onclick="simpanTransaksi()">
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="20 6 9 17 4 12"></polyline></svg>
               Simpan Transaksi
@@ -210,6 +240,8 @@
           </div>
         </div>
       </div>
+
+      </div><!-- /pmTrxBaru -->
 
       <div class="card">
         <div class="card-header">
@@ -235,10 +267,6 @@
   <section id="scr-penginputan" class="screen" aria-labelledby="piTitle">
     <div class="screen-header">
       <h2 id="piTitle" class="screen-title text-truncate">Penginputan</h2>
-      <button class="btn btn-pill btn-secondary btn-sm btn-icon-label" onclick="bukaModalProduk()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
-        Produk
-      </button>
     </div>
     <div class="screen-body">
 
@@ -406,6 +434,25 @@
 
 <!-- ============ LAYAR ADMIN (RBAC: kelola Cabang/User + Sheet Tes) ============ -->
 
+<!-- Overlay scanner kamera (barcode / QR) -->
+<div class="scan-overlay" id="scanOverlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="scanJudul">
+  <div class="scan-box">
+    <div class="scan-head">
+      <h3 class="scan-title" id="scanJudul">Scan produk</h3>
+      <button class="btn btn-pill btn-secondary btn-sm" onclick="Scanner.tutup()">Tutup</button>
+    </div>
+    <div id="scanReader" class="scan-reader"></div>
+    <p class="scan-petunjuk" id="scanPetunjuk"></p>
+    <p class="scan-terakhir" id="scanTerakhir" aria-live="polite"></p>
+    <p class="scan-pesan" id="scanPesan" aria-live="polite"></p>
+    <div class="btn-row scan-manual">
+      <input type="text" id="scanManual" placeholder="Atau ketik kode / ISBN / judul…" autocomplete="off"
+             onkeydown="if(event.key==='Enter'){event.preventDefault();Scanner.kirimManual()}" aria-label="Ketik kode manual">
+      <button class="btn btn-primary btn-sm" onclick="Scanner.kirimManual()">OK</button>
+    </div>
+  </div>
+</div>
+
 <!-- Modal umum -->
 <div class="modal-overlay" id="modalUmum" role="dialog" aria-modal="true">
   <div class="modal-box">
@@ -428,8 +475,11 @@
     });
   }
 </script>
+<script src="vendor/html5-qrcode.min.js"></script>
 <script src="js/gas.js"></script>
 <script src="js/store.js"></script>
+<script src="js/sync.js"></script>
+<script src="js/scanner.js"></script>
 <script src="js/app.js"></script>
 </body>
 </html>
