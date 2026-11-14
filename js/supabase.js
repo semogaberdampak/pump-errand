@@ -19,8 +19,8 @@
 
   // Ganti dua nilai ini dengan milik proyek Supabase Anda
   // (Dashboard → Project Settings → API).
-  const SUPABASE_URL = 'https://GANTI-PROYEK.supabase.co';
-  const SUPABASE_ANON_KEY = 'GANTI_DENGAN_ANON_KEY';
+  const SUPABASE_URL = 'https://qgfzznvcrpcypujeimwl.supabase.co';
+  const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFnZnp6bnZjcnBjeXB1amVpbXdsIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTQ2NTIyMDcsImV4cCI6MjExMDIyODIwN30.zdfXzbiDkugEDVprcfXb9hM8jgR4kVueA5I7du-LmWQ';
 
   const K_SESSION = 'pameran.session';
   const K_URL_LAMA = 'pameran.gasUrl'; // kunci lama; dibersihkan otomatis
