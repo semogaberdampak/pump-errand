@@ -8,7 +8,7 @@
    - POST ke Supabase selalu langsung ke jaringan.
    Instalasi toleran: satu file gagal di-cache tidak membatalkan SW.
    ============================================================ */
-const CACHE = 'pameran-v8';
+const CACHE = 'pameran-v9';
 const ASSETS = [
   './',
   './index.html',

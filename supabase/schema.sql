@@ -4,27 +4,39 @@
    Jalankan SELURUH file ini sekali di Supabase:
      Dashboard → SQL Editor → New query → tempel → Run.
 
-   Aman dijalankan pada proyek Supabase yang SUDAH DIPAKAI aplikasi lain:
-   seluruh tabel & fungsi hidup di schema sendiri, pameran, sehingga tidak
-   bentrok dengan public.users / public.transaksi milik aplikasi lain.
-   Satu-satunya objek kita di public adalah pintu RPC:
-   public.pameran_rpc_call(...) → pameran.rpc_call(...).
+   Dijalankan di proyek Supabase aplikasi POS (yang sudah berjalan), dan
+   AMAN untuk aplikasi POS tersebut:
+     • semua tabel & fungsi pameran ada di schema sendiri: pameran
+     • tabel POS (public.products, public.sales, dst.) tidak disentuh
+     • satu-satunya objek kita di public adalah pintu RPC:
+       public.pameran_rpc_call(...) → pameran.rpc_call(...)
 
-   Tabel ditutup rapat dengan RLS (tanpa policy), sehingga anon key
-   tidak bisa membaca/menulis tabel secara langsung — hanya fungsi
-   security definer yang boleh, dan fungsi itu memeriksa token sesi
-   serta peran (ADMIN / USER) di dalamnya.
+   Akun & sandi TIDAK disimpan di sini. Login memakai Supabase Auth milik
+   POS; identitas (nama, cabang, peran) dibaca dari public.profiles →
+   public.roles / public.branches berdasarkan JWT yang dikirim klien.
 
-   Aksi yang dilayani (sama dengan backend lama, tanpa mengubah klien):
-     login, logout, listUsers, addUser, deleteUser, test,
-     cariMaster, getProdukPameran, simpanProdukPameran,
-     hapusProdukPameran, getTransaksiPameran,
+   Tabel ditutup rapat dengan RLS (tanpa policy). Role `anon` tidak punya
+   hak apa pun; hanya `authenticated` yang boleh memanggil pintu RPC.
+
+   Aksi yang dilayani:
+     profilSaya, listUsers, test, cariMaster, getProdukPameran,
+     simpanProdukPameran, hapusProdukPameran, getTransaksiPameran,
      simpanTransaksiPameran, batalkanTransaksiPameran
    ============================================================ */
 
 create schema if not exists extensions;
 create schema if not exists pameran;
 create extension if not exists pgcrypto with schema extensions;
+
+-- Pengaman: file ini hanya masuk akal di proyek yang punya tabel POS.
+do $$
+begin
+  if to_regclass('public.profiles') is null
+     or to_regclass('public.roles') is null
+     or to_regclass('public.branches') is null then
+    raise exception 'Tabel POS (public.profiles / public.roles / public.branches) tidak ada. Jalankan file ini di proyek Supabase aplikasi POS, bukan proyek lain.';
+  end if;
+end $$;
 
 /* ---------------- Utilitas (harus ada sebelum kolom generated) ---------------- */
 
@@ -111,31 +123,6 @@ begin
   end if;
   return out_arr;
 end $$;
-
-create table if not exists pameran.users (
-  email      text primary key,
-  nama       text not null,
-  cabang     text not null,
-  pass_hash  text not null,
-  role       text not null default 'USER' check (role in ('ADMIN', 'USER')),
-  aktif      boolean not null default true,
-  dibuat     timestamptz not null default now()
-);
-
-create table if not exists pameran.sessions (
-  token       text primary key,
-  email       text not null references pameran.users(email) on delete cascade,
-  dibuat      timestamptz not null default now(),
-  kedaluwarsa timestamptz not null
-);
-create index if not exists sessions_kedaluwarsa_idx on pameran.sessions (kedaluwarsa);
-
--- Pembatas percobaan login (5x gagal → dikunci 15 menit per email)
-create table if not exists pameran.login_rate (
-  email        text primary key,
-  gagal        integer not null default 0,
-  kunci_sampai timestamptz
-);
 
 -- Sumber produk (dulu sheet "Master": produk_id | isbn | nama_produk | harga)
 create table if not exists pameran.master_produk (
@@ -582,106 +569,91 @@ begin
   return hasil;
 end $$;
 
-/* ---------------- Auth / RBAC ---------------- */
+/* ---------------- Identitas: akun POS (Supabase Auth + profiles) ----------------
+   Aplikasi pameran TIDAK menyimpan sandi sendiri. Pengguna login lewat
+   Supabase Auth milik aplikasi POS, lalu setiap panggilan RPC membawa JWT.
+   Identitas dibaca dari tabel POS:
+     auth.users.id → public.profiles → public.roles, public.branches
+   ------------------------------------------------------------------ */
 
-create or replace function pameran.f_login(p_email text, p_pass text) returns jsonb
-language plpgsql security definer set search_path = pameran, extensions as $$
+-- Peran POS mana yang boleh membuka halaman Admin pameran?
+-- Bila nama peran POS Anda lain (mis. "Pemilik Toko"), ubah pola di bawah.
+create or replace function pameran.f_peran_admin(p_role text) returns boolean
+language sql immutable as $$
+  select coalesce(p_role, '') ~* '(admin|owner|manajer|manager|supervisor)'
+$$;
+
+-- Identitas pemanggil, dari klaim JWT yang disetel PostgREST.
+create or replace function pameran.f_akun() returns jsonb
+language plpgsql security definer set search_path = pameran, public, extensions as $$
 declare
-  v_email text := lower(btrim(coalesce(p_email, '')));
-  v_pass text := coalesce(p_pass, '');
-  u pameran.users%rowtype;
-  r pameran.login_rate%rowtype;
-  v_token text;
+  v_klaim jsonb;
+  v_sub text;
+  v_admin boolean;
+  r record;
 begin
-  -- Kegagalan login dikembalikan sebagai {ok:false,error} (bukan RAISE) supaya
-  -- penghitung percobaan ikut ter-commit; RAISE akan me-rollback insert itu.
-  select * into r from pameran.login_rate where email = v_email for update;
-  if found and r.kunci_sampai is not null and r.kunci_sampai > now() then
-    return jsonb_build_object('ok', false,
-      'error', 'Terlalu banyak percobaan. Coba lagi 15 menit lagi');
-  end if;
-  if found and r.kunci_sampai is not null then
-    update pameran.login_rate set gagal = 0, kunci_sampai = null where email = v_email;
-  end if;
-
-  select * into u from pameran.users where email = v_email;
-  if not found or u.pass_hash <> extensions.crypt(v_pass, u.pass_hash) then
-    insert into pameran.login_rate (email, gagal, kunci_sampai)
-    values (v_email, 1, null)
-    on conflict (email) do update
-      set gagal = pameran.login_rate.gagal + 1,
-          kunci_sampai = case when pameran.login_rate.gagal + 1 >= 5
-                              then now() + interval '15 minutes'
-                              else pameran.login_rate.kunci_sampai end;
-    return jsonb_build_object('ok', false, 'error', 'Email atau kata sandi salah');
-  end if;
-  if not u.aktif then
-    return jsonb_build_object('ok', false, 'error', 'Akun dinonaktifkan');
+  begin
+    v_klaim := nullif(current_setting('request.jwt.claims', true), '')::jsonb;
+  exception when others then
+    v_klaim := null;
+  end;
+  v_sub := coalesce(
+    nullif(v_klaim->>'sub', ''),
+    nullif(current_setting('request.jwt.claim.sub', true), ''));
+  if v_sub is null then
+    raise exception 'Sesi kedaluwarsa, silakan login ulang';
   end if;
 
-  delete from pameran.login_rate where email = v_email;
-  delete from pameran.sessions where kedaluwarsa <= now();
-  v_token := encode(extensions.gen_random_bytes(32), 'hex');
-  insert into pameran.sessions (token, email, kedaluwarsa)
-  values (v_token, u.email, now() + interval '6 hours');
-  perform pameran.f_catat('login', u.email || ' (' || u.role || ') OK');
+  select p.id, u.email,
+         coalesce(nullif(btrim(p.full_name), ''), split_part(coalesce(u.email, ''), '@', 1)) as nama,
+         b.id as cabang_id,
+         coalesce(b.name, 'Semua cabang') as cabang,
+         coalesce(rn.name, '') as role_pos,
+         p.is_active
+    into r
+    from public.profiles p
+    left join auth.users u on u.id = p.id
+    left join public.roles rn on rn.id = p.role_id
+    left join public.branches b on b.id = p.branch_id
+   where p.id::text = v_sub;
+
+  if not found then
+    raise exception 'Akun ini tidak memiliki profil di aplikasi POS';
+  end if;
+  if r.is_active is not true then
+    raise exception 'Akun dinonaktifkan';
+  end if;
+
+  v_admin := pameran.f_peran_admin(r.role_pos);
+  if not v_admin and r.cabang_id is null then
+    raise exception 'Akun belum ditetapkan ke cabang mana pun di POS';
+  end if;
 
   return jsonb_build_object(
-    'ok', true,
-    'user', jsonb_build_object('email', u.email, 'nama', u.nama, 'cabang', u.cabang, 'role', u.role),
-    'session', jsonb_build_object('token', v_token,
-      'user', jsonb_build_object('email', u.email, 'nama', u.nama, 'cabang', u.cabang, 'role', u.role)));
+    'id', r.id, 'email', coalesce(r.email, ''), 'nama', r.nama,
+    'cabang', r.cabang, 'cabang_id', r.cabang_id,
+    'role', case when v_admin then 'ADMIN' else 'USER' end);
 end $$;
 
+-- Daftar pengguna POS (baca saja; akun dibuat di aplikasi POS).
 create or replace function pameran.f_list_users() returns jsonb
-language plpgsql security definer set search_path = pameran, extensions as $$
+language plpgsql security definer set search_path = pameran, public, extensions as $$
 declare hasil jsonb;
 begin
   select coalesce(jsonb_agg(jsonb_build_object(
-           'email', email, 'nama', nama, 'cabang', cabang, 'role', role, 'aktif', aktif) order by dibuat, email),
+           'email', coalesce(u.email, ''),
+           'nama', coalesce(p.full_name, ''),
+           'cabang', coalesce(b.name, 'Semua cabang'),
+           'role', case when pameran.f_peran_admin(rn.name) then 'ADMIN' else 'USER' end,
+           'role_pos', coalesce(rn.name, ''),
+           'aktif', p.is_active) order by p.full_name, u.email),
          '[]'::jsonb)
-    into hasil from pameran.users;
+    into hasil
+    from public.profiles p
+    left join auth.users u on u.id = p.id
+    left join public.roles rn on rn.id = p.role_id
+    left join public.branches b on b.id = p.branch_id;
   return hasil;
-end $$;
-
-create or replace function pameran.f_add_user(p_email text, p_nama text, p_cabang text, p_pass text, p_role text)
-returns jsonb
-language plpgsql security definer set search_path = pameran, extensions as $$
-declare
-  v_email text := lower(btrim(coalesce(p_email, '')));
-  v_cabang text := btrim(coalesce(p_cabang, ''));
-  v_nama text;
-begin
-  if v_email = '' or v_cabang = '' or length(coalesce(p_pass, '')) < 6 then
-    raise exception 'Data tidak lengkap (sandi ≥6)';
-  end if;
-  v_nama := coalesce(nullif(btrim(p_nama), ''), split_part(v_email, '@', 1));
-
-  insert into pameran.users (email, nama, cabang, pass_hash, role)
-  values (v_email, v_nama, v_cabang,
-          extensions.crypt(p_pass, extensions.gen_salt('bf', 10)),
-          case when upper(coalesce(p_role, '')) = 'ADMIN' then 'ADMIN' else 'USER' end)
-  on conflict (email) do nothing;
-  if not found then raise exception 'Email sudah terdaftar'; end if;
-
-  perform pameran.f_catat('addUser', v_email || ' ' || v_cabang || ' ' || coalesce(p_role, ''));
-  return jsonb_build_object('ditambahkan', v_email);
-end $$;
-
-create or replace function pameran.f_delete_user(p_email text) returns jsonb
-language plpgsql security definer set search_path = pameran, extensions as $$
-declare
-  v_email text := lower(btrim(coalesce(p_email, '')));
-  u pameran.users%rowtype;
-begin
-  select * into u from pameran.users where email = v_email;
-  if not found then raise exception 'User tidak ditemukan'; end if;
-  if u.role = 'ADMIN' and (select count(*) from pameran.users where role = 'ADMIN') <= 1 then
-    raise exception 'Tidak bisa menghapus admin terakhir';
-  end if;
-  delete from pameran.users where email = u.email;
-  perform pameran.f_catat('deleteUser', u.email);
-  return jsonb_build_object('dihapus', u.email);
 end $$;
 
 create or replace function pameran.f_test(p_name text) returns jsonb
@@ -703,63 +675,57 @@ begin
   raise exception 'Test tidak dikenal: %', coalesce(p_name, '');
 end $$;
 
-/* ---------------- Router RPC ---------------- */
+/* ---------------- Router RPC ----------------
+   Satu pintu untuk semua aksi. Identitas selalu diambil dari JWT
+   (tidak pernah dari payload), jadi pengguna tidak bisa mengaku
+   sebagai akun/cabang lain.                                         */
 
 create or replace function pameran.rpc_call(
-  p_action text, p_token text default '', p_payload jsonb default '{}'::jsonb)
+  p_action text, p_payload jsonb default '{}'::jsonb)
 returns jsonb
-language plpgsql security definer set search_path = pameran, extensions as $$
+language plpgsql security definer set search_path = pameran, public, extensions as $$
 declare
   a text := coalesce(p_action, '');
   p jsonb := coalesce(p_payload, '{}'::jsonb);
-  u pameran.users%rowtype;
+  akun jsonb;
+  email text;
+  peran text;
   cabang text;
 begin
-  if a = 'login' then
-    return pameran.f_login(p->>'email', p->>'pass');
-  end if;
-  if a = 'logout' then
-    if coalesce(p_token, '') <> '' then
-      delete from pameran.sessions where token = p_token;
-    end if;
-    return jsonb_build_object('keluar', true);
-  end if;
+  akun := pameran.f_akun();
+  email := akun->>'email';
+  peran := akun->>'role';
 
-  select us.* into u
-    from pameran.sessions s join pameran.users us on us.email = s.email
-   where s.token = coalesce(p_token, '') and s.kedaluwarsa > now();
-  if not found then raise exception 'Sesi kedaluwarsa, silakan login ulang'; end if;
-  if not u.aktif then raise exception 'Akun dinonaktifkan'; end if;
-
-  if a in ('listUsers', 'addUser', 'deleteUser', 'test') and u.role <> 'ADMIN' then
+  if a = 'profilSaya' then
+    return akun;
+  end if;
+  if a in ('listUsers', 'test') and peran <> 'ADMIN' then
     raise exception 'Halaman khusus Admin';
   end if;
 
-  -- Cabang & user selalu dari sesi; hanya ADMIN yang boleh menyebut cabang lain
-  cabang := btrim(u.cabang);
-  if u.role = 'ADMIN' and nullif(btrim(coalesce(p->>'cabang', '')), '') is not null then
+  -- Cabang selalu dari profil POS; hanya ADMIN yang boleh menyebut cabang lain
+  cabang := btrim(akun->>'cabang');
+  if peran = 'ADMIN' and nullif(btrim(coalesce(p->>'cabang', '')), '') is not null then
     cabang := btrim(p->>'cabang');
   end if;
 
   case a
     when 'listUsers' then return pameran.f_list_users();
-    when 'addUser' then return pameran.f_add_user(p->>'email', p->>'nama', cabang, p->>'pass', p->>'role');
-    when 'deleteUser' then return pameran.f_delete_user(p->>'email');
     when 'test' then return pameran.f_test(p->>'name');
     when 'cariMaster' then return pameran.cari_master(p->>'q', coalesce((p->>'exact')::boolean, false));
     when 'getProdukPameran' then
       return pameran.f_get_produk_pameran(p->>'event', cabang, pameran.f_tgl(p->>'tgl'));
     when 'simpanProdukPameran' then
       return pameran.f_simpan_produk_pameran(p->>'event', cabang, pameran.f_tgl(p->>'tgl'),
-                                            p->>'kode', p->'harga', p->'jumlah', u.email);
+                                            p->>'kode', p->'harga', p->'jumlah', email);
     when 'hapusProdukPameran' then
       return pameran.f_hapus_produk_pameran(p->>'event', cabang, pameran.f_tgl(p->>'tgl'), p->>'kode');
     when 'getTransaksiPameran' then
       return pameran.f_get_transaksi(p->>'event', cabang, pameran.f_tgl(p->>'tgl'));
     when 'simpanTransaksiPameran' then
-      return pameran.f_simpan_transaksi(p, cabang, u.email, u.role);
+      return pameran.f_simpan_transaksi(p, cabang, email, peran);
     when 'batalkanTransaksiPameran' then
-      return pameran.f_batalkan_transaksi(p, cabang, u.email, u.role);
+      return pameran.f_batalkan_transaksi(p, cabang, email, peran);
     else
       raise exception 'Aksi tidak dikenal: %', a;
   end case;
@@ -769,43 +735,43 @@ end $$;
    PostgREST hanya mengekspos schema public secara default, jadi cukup
    satu pembungkus tipis di public. Isi schema pameran tetap tertutup.
    Tidak perlu mengubah "Exposed schemas" di dashboard — penting agar
-   aplikasi lain yang memakai proyek ini tidak ikut berubah.            */
+   aplikasi POS yang memakai proyek ini tidak ikut berubah.            */
+
+drop function if exists public.pameran_rpc_call(text, text, jsonb);
 
 create or replace function public.pameran_rpc_call(
-  p_action text, p_token text default '', p_payload jsonb default '{}'::jsonb)
+  p_action text, p_payload jsonb default '{}'::jsonb)
 returns jsonb
 language sql
 security definer
 set search_path = pameran, extensions
-as $$ select pameran.rpc_call(p_action, p_token, p_payload) $$;
+as $$ select pameran.rpc_call(p_action, p_payload) $$;
 
-/* ---------------- Keamanan akses ---------------- */
+/* ---------------- Keamanan akses ----------------
+   Semua tabel pameran tertutup: hanya fungsi SECURITY DEFINER di atas
+   yang membacanya. Pengguna yang login (role `authenticated` Supabase)
+   hanya boleh memanggil public.pameran_rpc_call; `anon` tidak boleh
+   memanggil apa pun karena login memakai Supabase Auth.                  */
 
-alter table pameran.users            enable row level security;
-alter table pameran.sessions         enable row level security;
-alter table pameran.login_rate       enable row level security;
 alter table pameran.master_produk    enable row level security;
 alter table pameran.produk_pameran   enable row level security;
 alter table pameran.transaksi        enable row level security;
 alter table pameran.transaksi_item   enable row level security;
 alter table pameran.log_aktivitas    enable row level security;
 
--- Tidak ada policy: anon/authenticated tidak bisa menyentuh tabel langsung.
-revoke all on table pameran.users          from anon, authenticated;
-revoke all on table pameran.sessions       from anon, authenticated;
-revoke all on table pameran.login_rate     from anon, authenticated;
-revoke all on table pameran.master_produk  from anon, authenticated;
-revoke all on table pameran.produk_pameran from anon, authenticated;
-revoke all on table pameran.transaksi      from anon, authenticated;
-revoke all on table pameran.transaksi_item from anon, authenticated;
-revoke all on table pameran.log_aktivitas  from anon, authenticated;
+revoke all on table pameran.master_produk    from anon, authenticated;
+revoke all on table pameran.produk_pameran   from anon, authenticated;
+revoke all on table pameran.transaksi        from anon, authenticated;
+revoke all on table pameran.transaksi_item   from anon, authenticated;
+revoke all on table pameran.log_aktivitas    from anon, authenticated;
 revoke all on sequence pameran.master_produk_id_seq, pameran.produk_pameran_id_seq,
-  pameran.transaksi_item_id_seq, pameran.log_aktivitas_id_seq
-  from anon, authenticated;
+  pameran.transaksi_item_id_seq, pameran.log_aktivitas_id_seq from anon, authenticated;
 
--- Hanya router yang boleh dipanggil klien
-revoke execute on function pameran.rpc_call(text, text, jsonb) from public, anon, authenticated;
-
+revoke execute on function pameran.rpc_call(text, jsonb) from public, anon, authenticated;
+revoke execute on function pameran.f_akun() from public, anon, authenticated;
+revoke execute on function pameran.f_peran_admin(text) from public, anon, authenticated;
+revoke execute on function pameran.f_list_users() from public, anon, authenticated;
+revoke execute on function pameran.f_test(text) from public, anon, authenticated;
 revoke execute on function pameran.cari_master(text, boolean) from public, anon, authenticated;
 revoke execute on function pameran.f_norm_kode(text) from public, anon, authenticated;
 revoke execute on function pameran.f_norm_event(text) from public, anon, authenticated;
@@ -823,33 +789,22 @@ revoke execute on function pameran.f_batal_internal(text, text, date, text, text
 revoke execute on function pameran.f_simpan_transaksi(jsonb, text, text, text) from public, anon, authenticated;
 revoke execute on function pameran.f_batalkan_transaksi(jsonb, text, text, text) from public, anon, authenticated;
 revoke execute on function pameran.f_get_transaksi(text, text, date) from public, anon, authenticated;
-revoke execute on function pameran.f_login(text, text) from public, anon, authenticated;
-revoke execute on function pameran.f_list_users() from public, anon, authenticated;
-revoke execute on function pameran.f_add_user(text, text, text, text, text) from public, anon, authenticated;
-revoke execute on function pameran.f_delete_user(text) from public, anon, authenticated;
-revoke execute on function pameran.f_test(text) from public, anon, authenticated;
 
--- Klien tidak butuh akses ke schema pameran: cukup lewat pembungkus di public.
+-- Objek internal tidak boleh dijangkau lewat nama schema, bahkan bila
+-- suatu saat ada fungsi yang lupa dicabut haknya.
 revoke all on schema pameran from public, anon, authenticated;
-revoke execute on function public.pameran_rpc_call(text, text, jsonb) from public;
-grant execute on function public.pameran_rpc_call(text, text, jsonb) to anon, authenticated;
+
+-- Satu-satunya pintu untuk pengguna yang sudah login.
+revoke execute on function public.pameran_rpc_call(text, jsonb) from public, anon;
+grant execute on function public.pameran_rpc_call(text, jsonb) to authenticated;
 
 /* ---------------- Berbagi tabel dengan aplikasi lain (opsional) ----------------
-   Aplikasi lain cukup diberi hak baca ke schema ini; RLS tetap berlaku dan
-   tidak ada policy tulis, jadi aplikasi lain tidak bisa mengubah data pameran.
+   Aplikasi POS tidak perlu ini: ia tidak menyentuh schema pameran.
+   Bila nanti ada aplikasi lain yang harus MEMBACA data pameran:
 
-create role app_lain nologin;              -- atau pakai role milik aplikasi itu
-grant usage on schema pameran to app_lain;
-grant select on all tables in schema pameran to app_lain;
---------------------------------------------------------------------------------- */
+     grant usage on schema pameran to app_lain;
+     grant select on all tables in schema pameran to app_lain;
 
-/* ---------------- Admin pertama (jalankan sekali, di SQL Editor) ----------------
-   Ganti email & sandi di bawah (sandi ≥ 10 karakter), hapus tanda komentar,
-   lalu Run. Jangan pernah menaruh sandi sungguhan di file yang di-commit.
-
-insert into pameran.users (email, nama, cabang, pass_hash, role)
-values ('admin@pameran.id', 'Admin', 'Pusat',
-        extensions.crypt('GANTI_DENGAN_SANDI_KUAT', extensions.gen_salt('bf', 10)),
-        'ADMIN')
-on conflict (email) do nothing;
---------------------------------------------------------------------------------- */
+   Hanya baca — RLS tetap aktif dan tidak ada policy tulis untuk role itu.
+   Jangan memberi `anon` akses apa pun ke schema ini.
+   ------------------------------------------------------------------------------ */

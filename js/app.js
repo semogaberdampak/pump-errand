@@ -1535,13 +1535,12 @@
       const users = await DB.listUsers();
       $('admJumlah').textContent = users.length;
       if (admStatusIdle()) setStatusKoneksi('ok', 'Terhubung');
+      // Akun & cabang dikelola di aplikasi POS — di sini hanya ditampilkan.
       ul.innerHTML = users.map((u) => `
         <li class="user-row">
-          <div style="min-width:0"><span class="user-cabang">${esc(u.cabang)}</span><span class="user-email">${esc(u.email)}</span></div>
-          <span class="chip chip-role">${esc(u.role)}</span>
-          <button class="btn btn-pill btn-sm btn-danger-ghost" data-email="${esc(u.email)}" onclick="hapusUser(this.dataset.email)"
-                  aria-label="Hapus ${esc(u.email)}">Hapus</button>
-        </li>`).join('') || '<li class="hint-text">Belum ada user.</li>';
+          <div style="min-width:0"><span class="user-cabang">${esc(u.cabang)}</span><span class="user-email">${esc(u.nama ? u.nama + ' · ' : '')}${esc(u.email)}</span></div>
+          <span class="chip chip-role">${esc(u.role)}${u.aktif === false ? ' · nonaktif' : ''}</span>
+        </li>`).join('') || '<li class="hint-text">Belum ada pengguna POS.</li>';
     } catch (e) {
       $('admJumlah').textContent = '0';
       setStatusKoneksi('bad', e.jaringan ? 'Tidak ada koneksi' : 'Gagal');
@@ -1550,28 +1549,6 @@
   };
   const admStatusIdle = () => $('admStatus').getAttribute('data-state') !== 'loading';
 
-  window.tambahUser = async function () {
-    const u = {
-      cabang: $('admCabang').value.trim(),
-      email: $('admEmail').value.trim(),
-      pass: $('admPass').value.trim(),
-      role: $('admRole').value,
-      nama: $('admEmail').value.split('@')[0],
-    };
-    if (!u.cabang || !u.email || u.pass.length < 6) { toast('Lengkapi data (sandi ≥6)', 'error'); return; }
-    try {
-      await DB.addUser(u);
-      toast('Akun ' + u.email + ' dibuat — user bisa langsung login', 'ok');
-      $('admCabang').value = ''; $('admEmail').value = ''; $('admPass').value = '';
-      muaiUsers();
-    } catch (e) { toast('Gagal: ' + e.message, 'error'); }
-  };
-
-  window.hapusUser = async function (email) {
-    if (!confirm('Hapus akun ' + email + '?')) return;
-    try { await DB.deleteUser(email); toast('User dihapus', 'ok'); muaiUsers(); }
-    catch (e) { toast('Gagal: ' + e.message, 'error'); }
-  };
 
   /* ================= INIT ================= */
   document.addEventListener('DOMContentLoaded', function () {
