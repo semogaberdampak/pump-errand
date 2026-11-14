@@ -22,15 +22,14 @@ function buatLocalStorage() {
   };
 }
 
-function muatKlien({ url = URL_UJI, key = KEY_UJI, ganti = true } = {}) {
-  let kode = KODE;
-  if (ganti) {
-    kode = kode
-      .replace("const SUPABASE_URL = 'https://GANTI-PROYEK.supabase.co';",
-        `const SUPABASE_URL = '${url}';`)
-      .replace("const SUPABASE_ANON_KEY = 'GANTI_DENGAN_ANON_KEY';",
-        `const SUPABASE_ANON_KEY = '${key}';`);
-  }
+// Nilai konstanta diganti apa pun isinya, supaya tes tidak bergantung pada
+// kredensial sungguhan yang mungkin sudah diisi di js/supabase.js.
+function muatKlien({ url = URL_UJI, key = KEY_UJI } = {}) {
+  const kode = KODE
+    .replace(/const SUPABASE_URL = '[^']*';/, `const SUPABASE_URL = '${url}';`)
+    .replace(/const SUPABASE_ANON_KEY = '[^']*';/, `const SUPABASE_ANON_KEY = '${key}';`);
+  assert.ok(kode.includes(`const SUPABASE_URL = '${url}';`), 'konstanta SUPABASE_URL tidak ditemukan');
+  assert.ok(kode.includes(`const SUPABASE_ANON_KEY = '${key}';`), 'konstanta SUPABASE_ANON_KEY tidak ditemukan');
   const win = {};
   // eslint-disable-next-line no-new-func
   new Function('window', kode)(win);
@@ -70,7 +69,7 @@ test('panggilan RPC memakai URL, header, dan body yang benar', async () => {
 
   assert.equal(panggilan.length, 1);
   const p = panggilan[0];
-  assert.equal(p.url, URL_UJI + '/rest/v1/rpc/rpc_call');
+  assert.equal(p.url, URL_UJI + '/rest/v1/rpc/pameran_rpc_call');
   assert.equal(p.opt.method, 'POST');
   assert.equal(p.opt.headers.apikey, KEY_UJI);
   assert.equal(p.opt.headers.Authorization, 'Bearer ' + KEY_UJI);
@@ -152,9 +151,9 @@ test('respons bukan JSON saat sukses dianggap jaringan', async () => {
   });
 });
 
-test('fungsi rpc_call yang belum terpasang memberi pesan jelas', async () => {
+test('fungsi RPC yang belum terpasang memberi pesan jelas', async () => {
   const DB = muatKlien();
-  pasangFetch(respons(404, { message: 'Could not find the function public.rpc_call in the schema cache' }));
+  pasangFetch(respons(404, { message: 'Could not find the function public.pameran_rpc_call in the schema cache' }));
   await assert.rejects(() => DB.listUsers(), /Jalankan supabase\/schema\.sql/);
 });
 
@@ -165,7 +164,7 @@ test('anon key ditolak memberi pesan konfigurasi', async () => {
 });
 
 test('konfigurasi placeholder ditolak sebelum memanggil jaringan', async () => {
-  const DB = muatKlien({ ganti: false });
+  const DB = muatKlien({ url: 'https://GANTI-PROYEK.supabase.co', key: 'GANTI_DENGAN_ANON_KEY' });
   pasangFetch(respons(200, {}));
   await assert.rejects(() => DB.listUsers(), /SUPABASE_URL di js\/supabase\.js belum diisi/);
   assert.equal(panggilan.length, 0);

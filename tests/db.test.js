@@ -28,7 +28,7 @@ async function q(sql, params) {
 
 async function rpc(action, payload, token) {
   const res = await q(
-    'select public.rpc_call($1::text, $2::text, $3::jsonb) as r',
+    'select public.pameran_rpc_call($1::text, $2::text, $3::jsonb) as r',
     [action, token || '', JSON.stringify(payload || {})]
   );
   const hasil = res.rows[0].r;
@@ -59,6 +59,13 @@ before(async () => {
     if not exists (select 1 from pg_roles where rolname = 'authenticated') then create role authenticated; end if;
   end $$;`);
 
+  // Simulasikan proyek Supabase yang sudah dipakai aplikasi lain: tabel
+  // public.transaksi sudah ada dan WAJIB tidak tersentuh oleh skema kita.
+  await db.exec(`
+    create table public.transaksi (id text primary key, keterangan text);
+    insert into public.transaksi values ('APP-LAIN-1', 'data aplikasi lain');
+  `);
+
   await db.exec(SCHEMA);
 
   // Stub pgcrypto: hash dapat diverifikasi ulang seperti bcrypt.
@@ -85,12 +92,12 @@ before(async () => {
   `);
 
   await q(
-    `insert into public.users (email, nama, cabang, pass_hash, role)
+    `insert into pameran.users (email, nama, cabang, pass_hash, role)
      values ($1, 'Admin', 'Pusat', extensions.crypt($2, extensions.gen_salt('bf')), 'ADMIN')`,
     [ADMIN, SANDI_ADMIN]
   );
 
-  await q(`insert into public.master_produk (kode, isbn, nama, harga) values
+  await q(`insert into pameran.master_produk (kode, isbn, nama, harga) values
     ('9780306406157', '0306406152', 'Buku Contoh Satu', 75000),
     ('BK-002', '', 'Buku Contoh Dua', 50000),
     ('000123', '', 'Produk Nol Depan', 10000)`);
@@ -102,16 +109,39 @@ after(async () => {
 
 test('skema, RLS, dan hak akses terpasang', async () => {
   const t = await q(`select relname, relrowsecurity from pg_class
-                      where relname in ('users','transaksi','transaksi_item')`);
+                      where relnamespace = 'pameran'::regnamespace
+                        and relname in ('users','transaksi','transaksi_item')`);
   assert.equal(t.rows.length, 3);
   t.rows.forEach((r) => assert.equal(r.relrowsecurity, true, r.relname + ' tanpa RLS'));
 
-  const acl = await q(`select has_table_privilege('anon', 'public.users', 'select') as bisa`);
+  const acl = await q(`select has_table_privilege('anon', 'pameran.users', 'select') as bisa`);
   assert.equal(acl.rows[0].bisa, false, 'anon tidak boleh membaca tabel langsung');
 
   const fn = await q(`select has_function_privilege('anon',
-      'public.rpc_call(text,text,jsonb)', 'execute') as bisa`);
-  assert.equal(fn.rows[0].bisa, true, 'anon harus bisa memanggil rpc_call');
+      'public.pameran_rpc_call(text,text,jsonb)', 'execute') as bisa`);
+  assert.equal(fn.rows[0].bisa, true, 'anon harus bisa memanggil pintu RPC');
+
+  // Isi schema pameran tertutup: tanpa USAGE, anon tidak bisa menyentuh objeknya
+  // meski suatu saat ada fungsi yang lupa dicabut haknya.
+  const usage = await q(`select has_schema_privilege('anon', 'pameran', 'usage') as bisa`);
+  assert.equal(usage.rows[0].bisa, false, 'anon tidak boleh punya USAGE schema pameran');
+
+  const router = await q(`select has_function_privilege('anon',
+      'pameran.rpc_call(text,text,jsonb)', 'execute') as bisa`);
+  assert.equal(router.rows[0].bisa, false, 'anon tidak boleh memanggil router internal');
+});
+
+test('objek kita tidak menimpa tabel aplikasi lain di schema public', async () => {
+  const lain = await q(`select keterangan from public.transaksi where id = 'APP-LAIN-1'`);
+  assert.equal(lain.rows.length, 1);
+  assert.equal(lain.rows[0].keterangan, 'data aplikasi lain');
+
+  // Tidak ada satu pun tabel pameran yang mendarat di public.
+  const bocor = await q(`select table_name from information_schema.tables
+                          where table_schema = 'public'
+                            and table_name in ('users','sessions','login_rate','master_produk',
+                                               'produk_pameran','transaksi_item','log_aktivitas')`);
+  assert.deepEqual(bocor.rows, [], 'tabel pameran tidak boleh ada di schema public');
 });
 
 test('login menolak sandi salah dan menerima sandi benar', async () => {
@@ -125,7 +155,7 @@ test('login menolak sandi salah dan menerima sandi benar', async () => {
   assert.ok(d.session.token.length >= 32);
 
   global.adminToken = d.session.token;
-  const sesi = await q('select email, kedaluwarsa > now() as hidup from public.sessions where token = $1',
+  const sesi = await q('select email, kedaluwarsa > now() as hidup from pameran.sessions where token = $1',
     [d.session.token]);
   assert.equal(sesi.rows.length, 1);
   assert.equal(sesi.rows[0].hidup, true);
@@ -296,7 +326,7 @@ test('transaksi: validasi, diskon, idempotensi, dan pembacaan', async () => {
       items: [{ kode: 'BK-002', harga: 50000, qty: 1, diskonTipe: 'PERSEN', diskonNilai: 0 }] },
   }, global.tokenA);
   assert.equal(qris.total, 50000);
-  const qrisRow = await q('select bayar, kembali from public.transaksi where id = $1', ['TRX-QRIS01']);
+  const qrisRow = await q('select bayar, kembali from pameran.transaksi where id = $1', ['TRX-QRIS01']);
   assert.equal(qrisRow.rows[0].bayar, 50000);
   assert.equal(qrisRow.rows[0].kembali, 0);
 });
@@ -348,11 +378,11 @@ test('koreksi: transaksi lama otomatis BATAL dan tertaut', async () => {
   assert.equal(r.menggantikan, 'TRX-QRIS01');
   assert.equal(r.menggantikanDibatalkan, true);
 
-  const lama = await q('select status, alasan_batal from public.transaksi where id = $1', ['TRX-QRIS01']);
+  const lama = await q('select status, alasan_batal from pameran.transaksi where id = $1', ['TRX-QRIS01']);
   assert.equal(lama.rows[0].status, 'BATAL');
   assert.match(lama.rows[0].alasan_batal, /Dikoreksi/);
 
-  const baru = await q('select menggantikan from public.transaksi where id = $1', ['TRX-KOREKSI1']);
+  const baru = await q('select menggantikan from pameran.transaksi where id = $1', ['TRX-KOREKSI1']);
   assert.equal(baru.rows[0].menggantikan, 'TRX-QRIS01');
 });
 
@@ -382,7 +412,7 @@ test('ping dan seedTest milik admin', async () => {
 
   const seed = await rpc('test', { name: 'seedTest' }, global.adminToken);
   assert.ok(seed.barisDitambahkan);
-  const cek = await q(`select count(*)::int as n from public.master_produk where kode like 'TEST-%'`);
+  const cek = await q(`select count(*)::int as n from pameran.master_produk where kode like 'TEST-%'`);
   assert.equal(cek.rows[0].n, 1);
 
   assert.match(await rpcError('test', { name: 'apa' }, global.adminToken), /Test tidak dikenal/);

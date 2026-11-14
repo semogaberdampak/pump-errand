@@ -3,9 +3,11 @@
    ------------------------------------------------------------
    Semua data (login/user/cabang, master produk, produk yang
    dibawa, transaksi pameran) dibaca & ditulis lewat SATU fungsi
-   RPC: public.rpc_call(action, token, payload).
+   RPC: public.pameran_rpc_call(action, token, payload) — pembungkus tipis
+   di schema public untuk backend di schema pameran (aman berdampingan
+   dengan aplikasi lain yang memakai proyek Supabase yang sama).
 
-   Transport: POST JSON ke /rest/v1/rpc/rpc_call memakai anon key.
+   Transport: POST JSON ke /rest/v1/rpc/pameran_rpc_call memakai anon key.
    Tabel ditutup RLS; otorisasi (sesi, peran, cabang) diperiksa
    di dalam fungsi SQL, jadi anon key tidak bisa dipakai untuk
    membaca data cabang lain secara langsung.
@@ -24,7 +26,7 @@
 
   const K_SESSION = 'pameran.session';
   const K_URL_LAMA = 'pameran.gasUrl'; // kunci lama; dibersihkan otomatis
-  const RPC_PATH = '/rest/v1/rpc/rpc_call';
+  const RPC_PATH = '/rest/v1/rpc/pameran_rpc_call';
   const URL_RE = /^https:\/\/[a-z0-9-]+\.supabase\.co\/?$/i;
 
   function getUrl() {
@@ -103,7 +105,7 @@
         throw new Error('Supabase menolak anon key. Periksa SUPABASE_ANON_KEY di js/supabase.js.');
       }
       if (res.status === 404 || /Could not find the function/i.test(pesan)) {
-        throw new Error('Fungsi rpc_call belum ada di Supabase. Jalankan supabase/schema.sql lalu coba lagi.');
+        throw new Error('Fungsi pameran_rpc_call belum ada di Supabase. Jalankan supabase/schema.sql lalu coba lagi.');
       }
       const err = new Error(pesan);
       err.code = json && json.code;
