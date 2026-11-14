@@ -5,17 +5,17 @@
      bila offline. Perubahan kode langsung terpakai tanpa menaikkan
      nomor cache; offline tetap bisa dibuka dari cache terakhir.
    - vendor/ (library besar & tidak berubah): cache-first.
-   - POST ke Apps Script selalu langsung ke jaringan.
+   - POST ke Supabase selalu langsung ke jaringan.
    Instalasi toleran: satu file gagal di-cache tidak membatalkan SW.
    ============================================================ */
-const CACHE = 'pameran-v6';
+const CACHE = 'pameran-v7';
 const ASSETS = [
   './',
   './index.html',
   './manifest.webmanifest',
   './css/tokens.css',
   './css/pameran.css',
-  './js/gas.js',
+  './js/supabase.js',
   './js/store.js',
   './js/sync.js',
   './js/scanner.js',

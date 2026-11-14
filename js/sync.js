@@ -1,5 +1,5 @@
 /* ============================================================
-   sync.js — Sinkron transaksi pameran ke Google Sheet
+   sync.js — Sinkron transaksi pameran ke database Supabase
    ------------------------------------------------------------
    Offline-first: transaksi & pembatalan SELALU disimpan di
    perangkat lebih dulu, lalu dikirim lewat antrean. Antrean
@@ -31,7 +31,7 @@
 
   // Antrean hanya dikirim oleh akun pembuatnya: server mencatat user & cabang dari sesi yang mengirim
   const emailSaya = () => {
-    const s = (global.GAS && GAS.getSession()) || {};
+    const s = (global.DB && DB.getSession()) || {};
     return s.user && s.user.email ? String(s.user.email).toLowerCase() : '';
   };
   // Tanpa sesi sama sekali (mis. sesi habis) → tak ada "akun lain": antrean tetap dihitung agar lencana meminta login ulang
@@ -83,7 +83,7 @@
   async function flush() {
     if (jalan) return;
     if (!baca().some((o) => !o.gagal && milikSaya(o))) { umumkan(); return; }
-    if (!GAS.getSession()) { sesiHabis = true; umumkan(); return; }
+    if (!DB.getSession()) { sesiHabis = true; umumkan(); return; }
     jalan = true;
     sesiHabis = false;
     try {
@@ -91,9 +91,9 @@
       for (const op of antre) {
         try {
           if (op.aksi === 'simpan') {
-            await GAS.simpanTransaksiPameran({ event: op.event, tgl: op.tgl, trx: op.payload.trx });
+            await DB.simpanTransaksiPameran({ event: op.event, tgl: op.tgl, trx: op.payload.trx });
           } else {
-            await GAS.batalkanTransaksiPameran({ event: op.event, tgl: op.tgl, id: op.payload.id, alasan: op.payload.alasan });
+            await DB.batalkanTransaksiPameran({ event: op.event, tgl: op.tgl, id: op.payload.id, alasan: op.payload.alasan });
           }
           buangOp(op.qid);
           umumkan();
@@ -110,13 +110,13 @@
     }
   }
 
-  // Ambil transaksi terbaru dari sheet (perangkat lain, status batal) dan gabungkan ke data lokal.
+  // Ambil transaksi terbaru dari database (perangkat lain, status batal) dan gabungkan ke data lokal.
   async function tarik(ev) {
-    if (!ev || tarikJalan || !GAS.getSession()) return false;
+    if (!ev || tarikJalan || !DB.getSession()) return false;
     tarikJalan = true;
     const mulai = Date.now();
     try {
-      const server = await GAS.getTransaksiPameran({ event: ev.nama, tgl: ev.tglMulai });
+      const server = await DB.getTransaksiPameran({ event: ev.nama, tgl: ev.tglMulai });
       const tertunda = new Set(baca().filter((o) => o.evId === ev.id).map((o) => o.trxId));
       const list = Store.getTransaksi(ev.id);
       let berubah = false;

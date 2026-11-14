@@ -17,7 +17,7 @@
   let evtId = null;          // id event aktif
   let keranjang = [];        // item transaksi yang belum disimpan
   let produkTerpilih = null; // produk yang dipilih pada form tambah ke keranjang
-  let produkMaster = null;   // produk dari sheet Master yang sedang dibuka di modal Persiapan
+  let produkMaster = null;   // produk dari tabel master_produk yang sedang dibuka di modal Persiapan
   let trxAktif = false;      // panel "Transaksi Baru" sedang terbuka
 
   /* ---------------- Util ---------------- */
@@ -65,7 +65,7 @@
   const SCREENS = ['login', 'home', 'persiapan', 'pameran', 'penginputan', 'admin'];
   window.goScreen = function (nama) {
     if (nama === 'admin') {
-      const s = GAS.getSession();
+      const s = DB.getSession();
       if (!s || !s.user || s.user.role !== 'ADMIN') { toast('Khusus Admin', 'error'); return; }
     }
     if (window.Scanner && Scanner.sedangBuka()) Scanner.tutup();
@@ -174,7 +174,7 @@
       ? $('evTanggal').value + ' s.d. ' + selesai
       : $('evTanggal').value;
     const ev = Store.buatEvent($('evNama').value, tglLabel, $('evCatatan').value);
-    // simpan rentang terstruktur untuk gerbang sesi & nama sheet
+    // simpan rentang terstruktur untuk gerbang sesi & nama database
     Store.updateEvent(ev.id, {
       tglMulai: $('evTanggal').value,
       tglSelesai: selesai || $('evTanggal').value,
@@ -242,7 +242,7 @@
 
     renderChecklist();
 
-    // Produk yang dibawa (dari sheet produk_pameran_<tanggal>)
+    // Produk yang dibawa (dari database produk_pameran)
     renderProdukPameran();
   }
   window.renderPersiapan = renderPersiapan;
@@ -356,7 +356,7 @@
     renderPersiapan();
   };
 
-  /* ---- Produk yang dibawa: scan → sheet Master → modal → sheet produk_pameran_<tanggal> ---- */
+  /* ---- Produk yang dibawa: scan → master_produk → modal → produk_pameran ---- */
   let versiLokalPP = 0;        // naik tiap data lokal berubah; mencegah hasil sinkron lama menimpa data baru
   let syncPPJalan = false;
   let hasilMasterSementara = [];
@@ -386,21 +386,21 @@
       : '<div class="empty-state">Belum ada produk. Tekan “Scan Produk” atau ketik kode / judul di atas.</div>';
   }
 
-  // Tarik daftar produk event ini dari sheet (sumber kebenaran). Gagal/offline → pakai data di perangkat.
+  // Tarik daftar produk event ini dari database (sumber kebenaran). Gagal/offline → pakai data di perangkat.
   async function syncProdukPameran(diam) {
     const ev = Store.getActiveEvent();
     if (!ev || syncPPJalan) return;
     syncPPJalan = true;
     const versi = versiLokalPP;
     try {
-      const list = await GAS.getProdukPameran({ event: ev.nama, tgl: ev.tglMulai });
+      const list = await DB.getProdukPameran({ event: ev.nama, tgl: ev.tglMulai });
       if (versi === versiLokalPP && ev.id === evtId) {
         Store.setProdukPameran(ev.id, list);
         if (document.querySelector('#scr-persiapan.active')) renderProdukPameran();
       }
     } catch (err) {
       console.warn('Sinkron produk pameran gagal:', err.message);
-      if (!diam) toast('Memakai data di perangkat — sinkron sheet gagal: ' + err.message, 'error');
+      if (!diam) toast('Memakai data di perangkat — sinkron database gagal: ' + err.message, 'error');
     } finally {
       syncPPJalan = false;
     }
@@ -410,7 +410,7 @@
     if (!butuhEvent()) return;
     Scanner.buka({
       judul: 'Scan produk fisik',
-      petunjuk: 'Arahkan kamera ke barcode / QR produk. Data ditarik dari sheet Master.',
+      petunjuk: 'Arahkan kamera ke barcode / QR produk. Data ditarik dari master produk.',
       onKode: (teks, sumber) => cariDanPilihMaster(teks, sumber === 'kamera'),
     });
   };
@@ -426,17 +426,17 @@
   // true = modal dibuka (scanner ditahan sampai modal ditutup)
   async function cariDanPilihMaster(teks, hanyaPersis) {
     if (!butuhEvent()) return false;
-    toast('Mencari di sheet Master…');
+    toast('Mencari di master produk…');
     let r;
-    try { r = await GAS.cariMaster({ q: teks, exact: !!hanyaPersis }); }
+    try { r = await DB.cariMaster({ q: teks, exact: !!hanyaPersis }); }
     catch (err) { tampilkanGalatMaster(err); return true; }
     if (r.exact) { bukaModalJumlah(r.exact); return true; }
     if (r.hasil && r.hasil.length) { tampilkanPilihanMaster(r.hasil, r.total); return true; }
     // Tidak ketemu: tampilkan di modal (bukan toast sekilas) beserta teks yang terbaca, supaya mudah ditelusuri
     showModalBox('Produk tidak ditemukan', `
       <p>${hanyaPersis ? 'Kode yang terbaca' : 'Yang dicari'}: <strong>${esc(String(teks).slice(0, 60))}</strong></p>
-      <p class="rekap-note">Tidak ada produk dengan <em>produk_id</em> / <em>isbn</em> tersebut${hanyaPersis ? '' : ' (atau judul yang mengandung kata itu)'} di sheet <strong>Master</strong>.
-      Periksa isi sheet Master, atau ketik judulnya di kolom pencarian.</p>`,
+      <p class="rekap-note">Tidak ada produk dengan <em>kode</em> / <em>isbn</em> tersebut${hanyaPersis ? '' : ' (atau judul yang mengandung kata itu)'} di tabel <strong>master_produk</strong>.
+      Periksa isi tabel itu di Supabase, atau ketik judulnya di kolom pencarian.</p>`,
       '<button class="btn btn-primary btn-block" onclick="tutupModal()">Tutup</button>');
     return true;
   }
@@ -445,9 +445,9 @@
     let pesan = esc(err.message || 'Galat tidak diketahui');
     if (err.jaringan) pesan = 'Tidak ada koneksi ke server. Periksa internet lalu coba lagi.';
     else if (/Aksi tidak dikenal/i.test(err.message || '')) {
-      pesan = 'Backend Apps Script belum versi terbaru. Buka Apps Script → <strong>Deploy → Manage deployments → ✏️ → New version → Deploy</strong>, lalu coba lagi.';
+      pesan = 'Fungsi database belum terpasang. Jalankan <strong>supabase/schema.sql</strong> di SQL Editor Supabase, lalu coba lagi.';
     }
-    showModalBox('Gagal membaca sheet Master', '<p>' + pesan + '</p>',
+    showModalBox('Gagal membaca master produk', '<p>' + pesan + '</p>',
       '<button class="btn btn-primary btn-block" onclick="tutupModal()">Tutup</button>');
   }
 
@@ -502,7 +502,7 @@
     const btn = $('ppSimpan');
     btn.disabled = true; btn.textContent = 'Menyimpan…';
     try {
-      const r = await GAS.simpanProdukPameran({ event: ev.nama, tgl: ev.tglMulai, kode: produkMaster.kode, harga, jumlah });
+      const r = await DB.simpanProdukPameran({ event: ev.nama, tgl: ev.tglMulai, kode: produkMaster.kode, harga, jumlah });
       Store.upsertProdukPameran(evtId, r.produk);
       versiLokalPP++;
       tutupModal();
@@ -510,7 +510,7 @@
       if (document.querySelector('#scr-penginputan.active')) renderPenginputan();
       toast((r.diperbarui ? 'Diperbarui: ' : 'Tersimpan: ') + r.produk.nama.slice(0, 30) + ' × ' + r.produk.jumlah, 'ok');
     } catch (err) {
-      toast('Gagal simpan ke sheet: ' + err.message, 'error');
+      toast('Gagal simpan ke database: ' + err.message, 'error');
       btn.disabled = false; btn.textContent = 'Simpan';
     }
   };
@@ -527,7 +527,7 @@
                     Store.getInputan(evtId).some((x) => !x.deleted && x.kode === kode);
     if (dipakai) { toast('Tidak bisa dihapus: produk sudah dipakai di transaksi / input', 'error'); return; }
     kodeHapusPP = kode;
-    showModalBox('Hapus dari daftar?', `<p>“${esc(p.nama)}” (${esc(p.kode)}) akan dihapus dari sheet produk pameran.</p>`,
+    showModalBox('Hapus dari daftar?', `<p>“${esc(p.nama)}” (${esc(p.kode)}) akan dihapus dari database produk pameran.</p>`,
       `<div class="btn-row">
         <button class="btn btn-secondary" onclick="tutupModal()">Batal</button>
         <button class="btn btn-danger" onclick="konfirmasiHapusProduk()">Hapus</button>
@@ -538,7 +538,7 @@
     const ev = Store.getActiveEvent();
     if (!ev || !kodeHapusPP) return;
     try {
-      await GAS.hapusProdukPameran({ event: ev.nama, tgl: ev.tglMulai, kode: kodeHapusPP });
+      await DB.hapusProdukPameran({ event: ev.nama, tgl: ev.tglMulai, kode: kodeHapusPP });
       Store.hapusProdukPameranLokal(evtId, kodeHapusPP);
       versiLokalPP++;
       tutupModal();
@@ -594,7 +594,7 @@
       const kata = (q || '').trim().toLowerCase();
       if (!kata) { panel.style.display = 'none'; panel.innerHTML = ''; return; }
       const nk = Store.normKode(kata);
-      // Hanya produk yang dibawa ke pameran (sheet produk_pameran_<tanggal>)
+      // Hanya produk yang dibawa ke pameran (database produk_pameran)
       const hasil = produkEvent().filter((p) =>
         p.nama.toLowerCase().includes(kata) || p.kode.toLowerCase().includes(kata) ||
         (nk && (Store.normKode(p.kode).includes(nk) || Store.normKode(p.isbn).includes(nk)))
@@ -1113,7 +1113,7 @@
     if (!chip || !evtId) return;
     const r = Sync.ringkas(evtId);
     let teks = '✓ Tersinkron', kelas = 'chip-ok';
-    if (Sync._stub) { teks = '⚠ js/sync.js tidak termuat — transaksi TIDAK dikirim ke Sheet'; kelas = 'chip-bad'; }
+    if (Sync._stub) { teks = '⚠ js/sync.js tidak termuat — transaksi TIDAK dikirim ke database'; kelas = 'chip-bad'; }
     else if (r.sesiHabis) { teks = 'Sesi habis — login ulang untuk sinkron'; kelas = 'chip-bad'; }
     else if (r.gagal) { teks = '⚠ ' + r.gagal + ' gagal sinkron'; kelas = 'chip-bad'; }
     else if (r.menunggu) { teks = '⏳ ' + r.menunggu + ' menunggu kirim'; kelas = 'chip-warn'; }
@@ -1122,7 +1122,7 @@
     chip.className = 'chip ' + kelas;
   }
 
-  // Kirim antrean lalu tarik data terbaru dari sheet
+  // Kirim antrean lalu tarik data terbaru dari database
   async function sinkronTransaksi(diam) {
     const ev = Store.getActiveEvent();
     if (!ev) return;
@@ -1138,7 +1138,7 @@
     const r = Sync.ringkas(evtId);
     if (!gagal.length) {
       showModalBox('Status sinkron',
-        `<p>${r.menunggu ? r.menunggu + ' transaksi menunggu dikirim ke Sheet. Dikirim otomatis saat koneksi tersedia.' : 'Semua transaksi sudah tersimpan di Sheet.'}</p>` +
+        `<p>${r.menunggu ? r.menunggu + ' transaksi menunggu dikirim ke database. Dikirim otomatis saat koneksi tersedia.' : 'Semua transaksi sudah tersimpan di database.'}</p>` +
         (r.sesiHabis ? '<p>Sesi login habis. Keluar lalu login lagi agar antrean terkirim.</p>' : ''));
       return;
     }
@@ -1154,7 +1154,7 @@
   };
   window.cobaLagiSync = async function (qid) { tutupModal(); await Sync.cobaLagi(qid); renderSyncBar(); };
   window.buangSync = function (qid) {
-    if (!confirm('Buang antrean ini? Perubahan tersebut TIDAK akan sampai ke Sheet.')) return;
+    if (!confirm('Buang antrean ini? Perubahan tersebut TIDAK akan sampai ke database.')) return;
     Sync.buang(qid); tutupModal(); renderSyncBar(); renderRiwayatTransaksi();
   };
 
@@ -1236,7 +1236,7 @@
     inputs.forEach((x) => { masuk[x.kode] = (masuk[x.kode] || 0) + x.qty; });
 
     const rows = [['Kode', 'Produk', 'Kategori', 'Stok Awal', 'Terjual', 'Input Manual', 'Sisa Estimasi']];
-    // Stok awal = jumlah dibawa (sesi Persiapan, sheet produk_pameran_<tanggal>)
+    // Stok awal = jumlah dibawa (sesi Persiapan, database produk_pameran)
     produkEvent().forEach((p) => {
       const aw = Number(p.jumlah || 0), klr = keluar[p.kode] || 0, msk = masuk[p.kode] || 0;
       rows.push([p.kode, p.nama, p.kategori || '', aw, klr, msk, aw - klr + msk]);
@@ -1322,7 +1322,7 @@
     b.textContent = n;
   }
 
-  /* ================= AUTH / RBAC (via Google Apps Script) ================= */
+  /* ================= AUTH / RBAC (via Supabase) ================= */
   let sesiUser = null; // {email, nama, cabang, role}
 
   function tampilkanApp(user) {
@@ -1334,7 +1334,7 @@
     if (navAdmin) navAdmin.style.display = user.role === 'ADMIN' ? '' : 'none';
     const chip = $('admRoleChip');
     if (chip) chip.textContent = user.role;
-    isiGasUrl();
+    isiDbUrl();
     $('homeEventInfo').textContent = user.cabang + ' · ' + user.nama;
     goScreen('home');
     catatAktivitas();
@@ -1347,7 +1347,7 @@
     const btn = $('btnLogin');
     btn.disabled = true; btn.textContent = 'Memeriksa…';
     try {
-      const user = await GAS.login($('loginEmail').value.trim(), $('loginPass').value);
+      const user = await DB.login($('loginEmail').value.trim(), $('loginPass').value);
       toast('Halo, ' + (user.nama || user.email));
       tampilkanApp(user);
     } catch (err) {
@@ -1360,7 +1360,7 @@
 
   window.keluarLogin = function () {
     try { localStorage.removeItem(K_AKTIF); localStorage.removeItem(K_LAYAR); } catch (e) { /* abaikan */ }
-    GAS.logout();
+    DB.logout();
     location.reload();
   };
 
@@ -1430,7 +1430,7 @@
       localStorage.setItem(K_PESAN, 'Anda keluar otomatis karena tidak aktif selama 1 jam. Data yang belum tersinkron tetap aman di perangkat dan terkirim setelah Anda masuk lagi.');
       localStorage.removeItem(K_AKTIF);
     } catch (e) { /* abaikan */ }
-    GAS.logout();
+    DB.logout();
     if (muatUlang) { location.reload(); return; }
     sesiUser = null;
     document.body.classList.remove('logged-in');
@@ -1440,7 +1440,7 @@
 
   // Dipanggil saat halaman dimuat: periksa sesi, pulihkan pameran aktif & halaman terakhir
   function pulihSesi() {
-    const s = GAS.getSession();
+    const s = DB.getSession();
     let layarPulih = null;
     if (s && s.user) {
       let t = 0;
@@ -1479,18 +1479,18 @@
     box.textContent = Store.waktuWIB(Date.now(), true) + ' ▸ ' + txt + '\n' + box.textContent;
   }
 
-  function isiGasUrl() {
-    const el = $('gasUrl');
+  function isiDbUrl() {
+    const el = $('dbUrl');
     if (!el) return;
-    const u = GAS.getUrl() || '';
+    const u = DB.getUrl() || '';
     const ringkas = u.replace(/^https:\/\//, '');
     el.textContent = ringkas.length > 46 ? ringkas.slice(0, 30) + '…' + ringkas.slice(-12) : ringkas;
     el.title = u;
   }
 
-  window.salinGasUrl = async function () {
-    try { await navigator.clipboard.writeText(GAS.getUrl()); toast('URL disalin', 'ok'); }
-    catch (e) { toast('Tidak bisa menyalin — salin manual dari js/gas.js', 'error'); }
+  window.salinDbUrl = async function () {
+    try { await navigator.clipboard.writeText(DB.getUrl()); toast('URL disalin', 'ok'); }
+    catch (e) { toast('Tidak bisa menyalin — salin manual dari js/supabase.js', 'error'); }
   };
 
   // Status koneksi: idle | loading | ok | bad
@@ -1508,7 +1508,7 @@
     catatLog('ping…');
     const t0 = Date.now();
     try {
-      const d = await GAS.runTest('ping');
+      const d = await DB.runTest('ping');
       const ms = Date.now() - t0;
       setStatusKoneksi('ok', 'Terhubung · ' + ms + ' ms');
       catatLog('OK (' + ms + ' ms): ' + JSON.stringify(d));
@@ -1522,7 +1522,7 @@
 
   window.jalanTes = async function (nama) {
     catatLog('test ' + nama + '…');
-    try { const d = await GAS.runTest(nama); catatLog(JSON.stringify(d, null, 1)); toast('Tes selesai', 'ok'); }
+    try { const d = await DB.runTest(nama); catatLog(JSON.stringify(d, null, 1)); toast('Tes selesai', 'ok'); }
     catch (e) { catatLog('GAGAL: ' + e.message); toast('Tes gagal', 'error'); }
   };
 
@@ -1532,7 +1532,7 @@
     const ul = $('admUserList');
     ul.innerHTML = '<li class="hint-text">Memuat…</li>';
     try {
-      const users = await GAS.listUsers();
+      const users = await DB.listUsers();
       $('admJumlah').textContent = users.length;
       if (admStatusIdle()) setStatusKoneksi('ok', 'Terhubung');
       ul.innerHTML = users.map((u) => `
@@ -1560,7 +1560,7 @@
     };
     if (!u.cabang || !u.email || u.pass.length < 6) { toast('Lengkapi data (sandi ≥6)', 'error'); return; }
     try {
-      await GAS.addUser(u);
+      await DB.addUser(u);
       toast('Akun ' + u.email + ' dibuat — user bisa langsung login', 'ok');
       $('admCabang').value = ''; $('admEmail').value = ''; $('admPass').value = '';
       muaiUsers();
@@ -1569,14 +1569,14 @@
 
   window.hapusUser = async function (email) {
     if (!confirm('Hapus akun ' + email + '?')) return;
-    try { await GAS.deleteUser(email); toast('User dihapus', 'ok'); muaiUsers(); }
+    try { await DB.deleteUser(email); toast('User dihapus', 'ok'); muaiUsers(); }
     catch (e) { toast('Gagal: ' + e.message, 'error'); }
   };
 
   /* ================= INIT ================= */
   document.addEventListener('DOMContentLoaded', function () {
     terapkanTheme(document.documentElement.getAttribute('data-theme') === 'dark', false); // sinkronkan posisi slider
-    isiGasUrl(); // URL Web App (dikunci di js/gas.js) pada halaman Admin, hanya-baca
+    isiDbUrl(); // URL proyek Supabase (dikunci di js/supabase.js) pada halaman Admin, hanya-baca
 
     pulihSesi(); // gate RBAC + auto logout + pulihkan pameran aktif & halaman terakhir
 

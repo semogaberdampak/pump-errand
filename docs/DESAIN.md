@@ -1,6 +1,6 @@
 # Pencatatan Pameran — Catatan Desain
 
-Aplikasi web ringan (tanpa server, localStorage) untuk pencatatan saat pameran,
+Aplikasi web ringan (frontend statis + Supabase, cache localStorage) untuk pencatatan saat pameran,
 mengikuti **konsep layout ScanStock** (`index-scanstock.html`): layar penuh (`.screen`),
 bottom bar sticky, palet & token yang sama, dark mode via `data-theme`.
 
@@ -11,6 +11,8 @@ index.html        → halaman utama aplikasi (PWA, entry point) (4 screen: home 
 css/tokens.css    → variabel desain (:root, dark) disalin dari index-scanstock.html (ScanStock) + base body
 css/pameran.css   → layout & komponen khusus aplikasi pameran
 js/store.js       → lapisan data localStorage, ternormalisasi per event
+js/supabase.js    → klien Supabase (login/RBAC + baca/tulis data lewat RPC)
+supabase/schema.sql → skema database + fungsi RPC (jalankan sekali di SQL Editor)
 js/app.js         → logika UI ketiga sesi
 docs/DESAIN.md    → dokumen ini
 ```
@@ -41,7 +43,7 @@ docs/DESAIN.md    → dokumen ini
 |---|---|
 | `pameran.events` | daftar event `{id, nama, tanggal, catatan, dibuat, selesai}` |
 | `pameran.active` | id event yang sedang dibuka |
-| `pameran.products` | master produk global `{kode, nama, kategori, harga}` |
+| `pameran.products` | cache master produk `{kode, nama, kategori, harga}` |
 | `pameran.<id>.stokawal` | map kode→qty |
 | `pameran.<id>.cek` | array `{teks, done}` |
 | `pameran.<id>.transaksi` | array trx `{id, waktu, metode, total, items[], deleted}` |
@@ -56,11 +58,11 @@ Beberapa pameran dapat berjalan paralel; semuanya terisolasi per event id.
 - Target mobile-first: kontrol ≥44px, safe-area, max-width 540px.
 
 ## Pengembangan Lanjutan (ide)
-- Sinkron ke Google Apps Script seperti `config.js/API_URL` pada ScanStock.
+- Data server: Supabase (Postgres + RPC) — lihat `supabase/schema.sql`.
 - Scanner QR/barcode produk memakai `vendor/html5-qrcode.min.js` yang sudah dipakai induk.
 - Multi-user (kasir vs verifikator) mengikuti pola peran pada index.html.
 - PWA: manifest + service worker offline.
 
 ---
 
-📌 **Panduan deploy backend (Apps Script) tersedia di [`PANDUAN-DEPLOY.md`](PANDUAN-DEPLOY.md).**
+📌 **Panduan deploy backend (Supabase) tersedia di [`PANDUAN-DEPLOY.md`](PANDUAN-DEPLOY.md).**

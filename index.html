@@ -55,7 +55,7 @@
 
 <main class="content">
 
-  <!-- ============ LAYAR LOGIN (RBAC via Google Apps Script) ============ -->
+  <!-- ============ LAYAR LOGIN (RBAC via Supabase) ============ -->
   <section id="scr-login" class="screen login-screen active">
     <div class="login-card">
       <div class="login-logo" aria-hidden="true">
@@ -73,7 +73,7 @@
         </label>
         <button class="btn btn-primary btn-block btn-lg" type="submit" id="btnLogin">Masuk</button>
       </form>
-      <p class="login-hint">Akses &amp; daftar cabang diverifikasi lewat RBAC Google Apps Script.</p>
+      <p class="login-hint">Akses &amp; daftar cabang diverifikasi lewat RBAC di database Supabase.</p>
     </div>
   </section>
 
@@ -137,11 +137,11 @@
         </button>
         <div class="btn-row">
           <input type="text" id="pspCariMaster" placeholder="Atau ketik kode / ISBN / judul…" autocomplete="off"
-                 onkeydown="if(event.key==='Enter'){event.preventDefault();cariMasterManual()}" aria-label="Cari produk di sheet Master">
+                 onkeydown="if(event.key==='Enter'){event.preventDefault();cariMasterManual()}" aria-label="Cari produk di master produk">
           <button class="btn btn-pill btn-secondary btn-sm add-btn" onclick="cariMasterManual()">Cari</button>
         </div>
         <div id="pspStokList"></div>
-        <p class="rekap-note">Scan produk fisik → data ditarik dari sheet <strong>Master</strong> → isi harga &amp; jumlah yang dibawa. Disimpan ke sheet <strong>produk_pameran_(tanggal)</strong> dan menjadi dasar stok awal serta daftar produk di sesi Pameran.</p>
+        <p class="rekap-note">Scan produk fisik → data ditarik dari tabel <strong>master_produk</strong> → isi harga &amp; jumlah yang dibawa. Disimpan ke tabel <strong>produk_pameran</strong> dan menjadi dasar stok awal serta daftar produk di sesi Pameran.</p>
       </div>
     </div>
 
@@ -357,19 +357,19 @@
     <span class="chip chip-role" id="admRoleChip">ADMIN</span>
   </div>
   <div class="screen-body">
-    <p class="screen-subtitle">Kelola koneksi Apps Script, cabang, dan user. Akun yang dibuat bisa langsung dipakai login.</p>
+    <p class="screen-subtitle">Kelola koneksi Supabase, cabang, dan user. Akun yang dibuat bisa langsung dipakai login.</p>
 
     <div class="card adm-card">
       <div class="adm-head">
-        <h2 class="adm-title">Koneksi Apps Script</h2>
+        <h2 class="adm-title">Koneksi Supabase</h2>
         <span class="adm-status" id="admStatus" data-state="idle" aria-live="polite"><i class="dot"></i><span id="admStatusTeks">Belum dites</span></span>
       </div>
       <div class="adm-url">
-        <code id="gasUrl"></code>
-        <button type="button" class="btn btn-pill btn-ghost btn-sm" onclick="salinGasUrl()">Salin</button>
+        <code id="dbUrl"></code>
+        <button type="button" class="btn btn-pill btn-ghost btn-sm" onclick="salinDbUrl()">Salin</button>
       </div>
       <button class="btn btn-secondary btn-block" id="btnTesKoneksi" onclick="tesKoneksi()">Tes Koneksi</button>
-      <p class="hint-text">URL dikunci di <code>js/gas.js</code> (<code>PINNED_URL</code>). Untuk menggantinya, edit file tersebut.</p>
+      <p class="hint-text">URL &amp; anon key dikunci di <code>js/supabase.js</code>. Untuk menggantinya, edit file tersebut.</p>
     </div>
 
     <div class="card adm-card">
@@ -400,8 +400,8 @@
     </div>
 
     <div class="card adm-card">
-      <h2 class="adm-title">Sheet Tes</h2>
-      <p class="hint-text" style="margin:0">Jalankan fungsi uji bawaan Apps Script untuk memastikan spreadsheet <code>Users</code> &amp; log berfungsi.</p>
+      <h2 class="adm-title">Tes Database</h2>
+      <p class="hint-text" style="margin:0">Jalankan fungsi uji bawaan database untuk memastikan tabel <code>users</code> &amp; log berfungsi.</p>
       <div class="tool-grid">
         <button class="btn btn-secondary" onclick="jalanTes('ping')">Ping</button>
         <button class="btn btn-secondary" onclick="jalanTes('seedTest')">Seed Data Tes</button>
@@ -447,7 +447,7 @@
 </footer>
 
 
-<!-- ============ LAYAR ADMIN (RBAC: kelola Cabang/User + Sheet Tes) ============ -->
+<!-- ============ LAYAR ADMIN (RBAC: kelola Cabang/User + Tes Database) ============ -->
 
 <!-- Overlay scanner kamera (barcode / QR) -->
 <div class="scan-overlay" id="scanOverlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="scanJudul">
@@ -491,7 +491,7 @@
   }
 </script>
 <script src="vendor/html5-qrcode.min.js"></script>
-<script src="js/gas.js"></script>
+<script src="js/supabase.js"></script>
 <script src="js/store.js"></script>
 <script src="js/sync.js"></script>
 <script src="js/scanner.js"></script>

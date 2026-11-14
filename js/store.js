@@ -9,7 +9,7 @@
      pameran.active        → id event yang sedang dibuka
      pameran.products      → master produk global
      pameran.<id>.stokawal    → (lama) stok awal per produk
-     pameran.<id>.produkpameran → produk yang dibawa {kode,isbn,nama,harga,jumlah} (cache sheet produk_pameran_<tgl>)
+     pameran.<id>.produkpameran → produk yang dibawa {kode,isbn,nama,harga,jumlah} (cache tabel produk_pameran)
      pameran.<id>.cek         → checklist persiapan
      pameran.<id>.cekstatus   → status "Persiapan OK" (disimpan / dikoreksi)
      pameran.<id>.transaksi   → transaksi penjualan (sesi pameran)
@@ -36,7 +36,7 @@
   ];
 
   // Master produk TIDAK disimpan sebagai dummy di klien.
-  // Sumber kebenaran: sheet "MasterProduk" via GAS (js/gas.js).
+  // Sumber kebenaran: tabel master_produk di Supabase (js/supabase.js).
   // Cache lokal hanya menampung hasil tarik terakhir dari server.
   const CONTOH_PRODUK = [];
 
