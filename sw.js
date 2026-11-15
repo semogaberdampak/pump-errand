@@ -8,7 +8,7 @@
    - POST ke Supabase selalu langsung ke jaringan.
    Instalasi toleran: satu file gagal di-cache tidak membatalkan SW.
    ============================================================ */
-const CACHE = 'pameran-v10';
+const CACHE = 'pameran-v11';
 const ASSETS = [
   './',
   './index.html',
@@ -19,6 +19,14 @@ const ASSETS = [
   './js/store.js',
   './js/sync.js',
   './js/scanner.js',
+  './js/app/core.js',
+  './js/app/audio.js',
+  './js/app/auth.js',
+  './js/app/home.js',
+  './js/app/persiapan.js',
+  './js/app/pameran.js',
+  './js/app/penginputan.js',
+  './js/app/admin.js',
   './js/app.js',
   './vendor/html5-qrcode.min.js',
   './icons/icon-192.png',

@@ -7,6 +7,7 @@
     "test": "node --test tests/"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "^0.5.16"
+    "@electric-sql/pglite": "^0.5.16",
+    "jsdom": "^31.0.1"
   }
 }

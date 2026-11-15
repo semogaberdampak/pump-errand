@@ -13,7 +13,15 @@ css/pameran.css   → layout & komponen khusus aplikasi pameran
 js/store.js       → lapisan data localStorage, ternormalisasi per event
 js/supabase.js    → klien Supabase (login/RBAC + baca/tulis data lewat RPC)
 supabase/schema.sql → skema database + fungsi RPC (jalankan sekali di SQL Editor)
-js/app.js         → logika UI ketiga sesi
+js/app.js         → bootstrap: tunggu penyimpanan siap, pulihkan sesi, shortcut, sinkron otomatis
+js/app/core.js    → state bersama (App.state), utilitas, modal, navigasi layar, tema
+js/app/audio.js   → bunyi + getar umpan balik scan (Web Audio, tanpa berkas audio)
+js/app/auth.js    → login/logout, RBAC, pemulihan sesi, keluar otomatis 1 jam
+js/app/home.js    → beranda: daftar/buat/buka/selesai/hapus pameran
+js/app/persiapan.js → sesi 1: checklist + produk yang dibawa
+js/app/pameran.js → sesi 2: cari, keranjang, diskon, bayar, riwayat, scan (kamera & scan gun)
+js/app/penginputan.js → sesi 3: input manual, rekap, unduh CSV
+js/app/admin.js   → halaman Admin (status koneksi, uji DB, daftar pengguna)
 docs/DESAIN.md    → dokumen ini
 ```
 
@@ -56,6 +64,8 @@ Beberapa pameran dapat berjalan paralel; semuanya terisolasi per event id.
 - Tanpa framework, tanpa build step — konsisten dengan proyek induk (file statis).
 - Semua penghapusan bersifat soft-delete agar audit trail terjaga (kecuali hapus event).
 - Target mobile-first: kontrol ≥44px, safe-area, max-width 540px.
+- Umpan balik scan tanpa perlu melihat layar: bunyi Web Audio (OK / melebihi stok / kode tidak dikenal) + getar. Tidak ada berkas audio, jadi tetap bekerja offline; di iOS bunyi ikut sakelar senyap.
+- Kode UI dipecah per sesi di `js/app/`: satu objek `App` berisi state bersama, setiap modul menempelkan fungsinya ke `App` dan tetap mengekspos handler ke `window` untuk atribut `onclick` di HTML. Urutan `<script>` di `index.html` penting: `core` paling awal, `app.js` (bootstrap) paling akhir.
 
 ## Pengembangan Lanjutan (ide)
 - Data server: Supabase (Postgres + RPC) — lihat `supabase/schema.sql`.

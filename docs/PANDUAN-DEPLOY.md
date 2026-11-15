@@ -107,8 +107,8 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOi...'; // anon public / publishable key POS
 
 - Frontend statis (GitHub Pages/Netlify), tanpa build step.
 - Service worker memakai strategi network-first; setelah mengubah file frontend,
-  naikkan `CACHE` di `sw.js` (sekarang `pameran-v9`) lalu muat ulang.
-- Pastikan `js/supabase.js` dan folder `vendor/` ikut ter-commit.
+  naikkan `CACHE` di `sw.js` (sekarang `pameran-v11`) lalu muat ulang.
+- Pastikan `js/supabase.js`, seluruh folder `js/app/`, dan folder `vendor/` ikut ter-commit.
 
 ## 6. Menguji
 
