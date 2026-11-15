@@ -55,9 +55,29 @@ Aturan yang dipakai aplikasi:
 - Tab **Admin** aplikasi pameran hanya menampilkan daftar pengguna POS (baca saja);
   pembuatan akun tetap di aplikasi POS.
 
-## 3. Isi master produk
+## 3. Master produk
 
-Produk pameran **terpisah** dari `public.products` POS. Isi `pameran.master_produk`:
+Sumber utama produk adalah tabel **`public.products` milik aplikasi POS**.
+Saat kode/ISBN yang di-scan belum ada di `pameran.master_produk`, aplikasi
+menyelaraskan produk dari `public.products` ke `pameran.master_produk` lalu
+mencari lagi — jadi produk baru di POS **langsung bisa** dipakai di pameran
+tanpa mengisi apa pun secara manual. Tabel POS hanya **dibaca**, tidak diubah.
+
+Deteksi kolom otomatis (nama yang umum dipakai POS):
+
+| Isi | Kolom yang dikenali (urutan prioritas) |
+|---|---|
+| kode | `code`, `kode`, `sku`, `product_code`, `barcode`, `isbn` |
+| nama | `name`, `nama`, `nama_produk`, `product_name`, `title`, `judul` |
+| harga | `price`, `harga`, `harga_jual`, `sell_price`, `sale_price`, `unit_price` |
+| isbn (opsional) | `isbn`, `barcode`, `ean`, `kode_barcode` |
+
+Bila produk POS memakai `is_active = false` atau `deleted_at` terisi, baris itu
+tidak ditarik. Bila nama kolom POS Anda tidak ada di daftar, tambahkan ke
+`pameran.f_sync_master_pos` lalu jalankan ulang `schema.sql`.
+
+`pameran.master_produk` tetap bisa diisi manual untuk produk yang **tidak** ada
+di POS (mis. hanya dijual saat pameran) — baris manual tidak pernah ditimpa:
 
 ```sql
 insert into pameran.master_produk (kode, isbn, nama, harga) values
@@ -122,6 +142,6 @@ const SUPABASE_ANON_KEY = 'eyJhbGciOi...'; // anon public / publishable key POS
 | `Akun dinonaktifkan` | `profiles.is_active = false` | Aktifkan di POS |
 | Halaman Admin tidak muncul padahal admin | Nama peran POS tidak cocok pola | Sesuaikan `pameran.f_peran_admin` |
 | `Sesi kedaluwarsa, silakan login ulang` | Refresh token dicabut/kedaluwarsa | Login ulang |
-| `Kode ... tidak ada di tabel master_produk` | Produk belum diisi | Langkah 3 |
+| `Kode ... tidak ada di tabel master_produk maupun produk POS` | Kode tidak ada di `public.products` POS dan belum diisi manual | Langkah 3 |
 | `⚠ N gagal sinkron` | Server menolak (format/produk/pemilik) | Ketuk lencana → baca alasan |
 | Tampilan lama masih muncul | Cache service worker | Naikkan `CACHE` di `sw.js`, muat ulang |

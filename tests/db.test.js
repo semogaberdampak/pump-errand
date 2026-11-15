@@ -212,6 +212,16 @@ test('cari master: persis via kode/ISBN-10/ISBN-13 dan pencarian judul', async (
   assert.equal(r.exact, null);
   assert.deepEqual(r.hasil, []);
 
+  // Produk yang hanya ada di tabel POS (public.products) tetap ditemukan:
+  // master_produk diselaraskan otomatis, tabel POS tidak diubah.
+  r = await rpc('cariMaster', { q: 'pos 1', exact: true }, U_A);
+  assert.equal(r.exact.kode, 'POS-1');
+  assert.equal(r.exact.nama, 'Produk POS');
+  assert.equal(r.exact.harga, 5000);
+
+  const pos = await q(`select count(*)::int as n from public.products`);
+  assert.equal(pos.rows[0].n, 1, 'tabel POS tidak boleh ditambah/diubah');
+
   assert.match(await rpcError('cariMaster', { q: '   ' }, U_A), /kosong/);
 });
 
@@ -235,6 +245,11 @@ test('produk pameran: simpan, perbarui, isolasi cabang', async () => {
 
   const cabangLain = await rpc('getProdukPameran', { event: 'Pameran Buku', tgl: '2026-11-14' }, U_B);
   assert.deepEqual(cabangLain, [], 'cabang lain tidak boleh melihat produk ini');
+
+  const dariPos = await rpc('simpanProdukPameran',
+    { event: 'Pameran POS', tgl: '2026-11-14', kode: 'POS-1', harga: 4500, jumlah: 3 }, U_A);
+  assert.equal(dariPos.produk.nama, 'Produk POS', 'produk POS bisa disimpan ke pameran');
+  assert.equal(dariPos.produk.harga, 4500);
 
   assert.match(
     await rpcError('simpanProdukPameran',

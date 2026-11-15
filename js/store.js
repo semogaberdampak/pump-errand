@@ -1,8 +1,17 @@
 /* ============================================================
-   store.js — Lapisan penyimpanan data (localStorage) untuk
-   aplikasi Pencatatan pameran.
-   Semua data dinormalisasi per EVENT (pameran) agar bisa
-   menjalankan beberapa pameran sekaligus tanpa saling menimpa.
+   store.js — Lapisan penyimpanan data untuk aplikasi
+   Pencatatan pameran. Semua data dinormalisasi per EVENT
+   (pameran) agar bisa menjalankan beberapa pameran sekaligus
+   tanpa saling menimpa.
+
+   Media simpan: IndexedDB ("pameran-data") dengan cache di
+   memori, sehingga Store.* tetap fungsi SINKRON seperti dulu.
+   Bila IndexedDB tidak tersedia/gagal, otomatis memakai
+   localStorage seperti versi sebelumnya.
+
+   Kunci yang BUKAN milik Store (tema, sesi login, cap waktu
+   idle, halaman terakhir) tetap di localStorage dan tidak ikut
+   dipindahkan.
 
    Kunci storage:
      pameran.events        → daftar event
@@ -40,26 +49,188 @@
   // Cache lokal hanya menampung hasil tarik terakhir dari server.
   const CONTOH_PRODUK = [];
 
-  function baca(kunci, defaultVal) {
-    try {
-      const raw = localStorage.getItem(kunci);
-      if (raw === null) return defaultVal;
-      return JSON.parse(raw);
-    } catch (e) {
-      console.error('store.baca gagal:', kunci, e);
-      return defaultVal;
-    }
+  /* ---------------- Lapisan penyimpanan ----------------
+     Alasan pindah dari localStorage: daftar transaksi tumbuh terus dan
+     setiap penyimpanan menulis ulang seluruh daftar secara SINKRON
+     (memblokir layar) serta terbatas ±5 MB. IndexedDB menulis di latar
+     belakang tanpa batas seketat itu; bacaan dilayani dari cache memori.
+     Nilai disimpan sebagai JSON string — bentuk yang sama persis dengan
+     isi localStorage lama, sehingga migrasi cukup menyalin apa adanya. */
+  const IDB_NAMA = 'pameran-data';
+  const IDB_TABEL = 'kv';
+  // Kunci milik modul lain (tetap di localStorage)
+  const K_SETELAN = ['pameran.theme', 'pameran.session', 'pameran.gasUrl',
+                     'pameran.aktifTerakhir', 'pameran.layar', 'pameran.pesanLogin'];
+  const milikStore = (k) => typeof k === 'string' && k.indexOf(PREFIX) === 0 && K_SETELAN.indexOf(k) < 0;
+
+  const mem = new Map();   // kunci → JSON string (isi disk terakhir)
+  let disk = null;         // { semua, simpan, hapus } atau null (mode localStorage)
+  let pernahLapor = false;
+
+  // Sinkron antar-tab: tab lain yang menulis ikut memperbarui cache kita,
+  // supaya tab lama tidak menimpa data transaksi yang lebih baru.
+  const TAB = Math.random().toString(36).slice(2);
+  let kanal = null;
+  try { if (typeof global.BroadcastChannel !== 'undefined') kanal = new global.BroadcastChannel('pameran-data'); }
+  catch (e) { kanal = null; }
+  const kabariTab = (kunci, isi) => {
+    if (!kanal) return;
+    try { kanal.postMessage({ tab: TAB, k: kunci, s: isi }); } catch (e) { /* abaikan */ }
+  };
+  if (kanal) {
+    kanal.onmessage = (e) => {
+      const d = e.data;
+      if (!d || d.tab === TAB || !milikStore(d.k)) return;
+      if (d.s === null) mem.delete(d.k); else mem.set(d.k, d.s);
+    };
   }
 
-  function tulis(kunci, nilai) {
-    try {
-      localStorage.setItem(kunci, JSON.stringify(nilai));
-      return true;
-    } catch (e) {
+  function bukaIndexedDb() {
+    if (!global.indexedDB) return Promise.resolve(null);
+    return new Promise((selesai) => {
+      let tuntas = false;
+      const beres = (db) => { if (!tuntas) { tuntas = true; selesai(db); } };
+      let req;
+      try { req = global.indexedDB.open(IDB_NAMA, 1); } catch (e) { return selesai(null); }
+      setTimeout(() => beres(null), 3000);   // jangan menahan aplikasi bila browser lambat
+      req.onupgradeneeded = () => { try { req.result.createObjectStore(IDB_TABEL); } catch (e) { /* sudah ada */ } };
+      req.onsuccess = () => { if (tuntas) { try { req.result.close(); } catch (e) {} } else beres(req.result); };
+      req.onerror = () => beres(null);
+      req.onblocked = () => beres(null);
+    });
+  }
+
+  function buatDisk(db) {
+    const tulisTx = (mode) => db.transaction(IDB_TABEL, mode).objectStore(IDB_TABEL);
+    return {
+      semua: () => new Promise((selesai, gagal) => {
+        const hasil = [];
+        let req;
+        try { req = tulisTx('readonly').openCursor(); } catch (e) { return gagal(e); }
+        req.onsuccess = () => {
+          const c = req.result;
+          if (c) { hasil.push([c.key, c.value]); c.continue(); } else selesai(hasil);
+        };
+        req.onerror = () => gagal(req.error);
+      }),
+      simpan: (kunci, isi) => new Promise((selesai, gagal) => {
+        let tx;
+        try { tx = db.transaction(IDB_TABEL, 'readwrite'); tx.objectStore(IDB_TABEL).put(isi, kunci); }
+        catch (e) { return gagal(e); }
+        tx.oncomplete = () => selesai(true);
+        tx.onerror = () => gagal(tx.error);
+        tx.onabort = () => gagal(tx.error || new Error('transaksi dibatalkan'));
+      }),
+      hapus: (kunci) => new Promise((selesai, gagal) => {
+        let tx;
+        try { tx = db.transaction(IDB_TABEL, 'readwrite'); tx.objectStore(IDB_TABEL).delete(kunci); }
+        catch (e) { return gagal(e); }
+        tx.oncomplete = () => selesai(true);
+        tx.onerror = () => gagal(tx.error);
+      }),
+    };
+  }
+
+  function tulisLokal(kunci, isi) {
+    try { localStorage.setItem(kunci, isi); return true; }
+    catch (e) {
       console.error('store.tulis gagal:', kunci, e);
       global.toast && global.toast('Gagal menyimpan data (penyimpanan penuh?)', 'err');
       return false;
     }
+  }
+
+  // Muat semua data ke memori dari localStorage (dipakai bila tanpa IndexedDB)
+  function hidrasiLokal() {
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && milikStore(k) && !mem.has(k)) {
+          const s = localStorage.getItem(k);
+          if (s !== null) mem.set(k, s);
+        }
+      }
+    } catch (e) { console.error('store: gagal membaca localStorage', e); }
+  }
+
+  // Pindahkan data lama dari localStorage ke IndexedDB (sekali saja).
+  // Penghapusan di localStorage hanya dilakukan setelah salinan di disk aman.
+  async function pindahkanDariLokal() {
+    const kunci = [];
+    try {
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && milikStore(k)) kunci.push(k);
+      }
+    } catch (e) { return; }
+
+    const terhapus = [];
+    for (const k of kunci) {
+      try {
+        if (!mem.has(k)) {
+          const s = localStorage.getItem(k);
+          if (s === null) continue;
+          await disk.simpan(k, s);
+          mem.set(k, s);
+        }
+        terhapus.push(k);
+      } catch (e) { console.warn('store: gagal memindahkan', k, e); }
+    }
+    terhapus.forEach((k) => { try { localStorage.removeItem(k); } catch (e) { /* abaikan */ } });
+    if (terhapus.length) console.info('store: ' + terhapus.length + ' kunci dipindahkan dari localStorage ke IndexedDB');
+  }
+
+  // Selesai = semua data sudah ada di memori; app.js menunggu ini sebelum render.
+  const siap = (async () => {
+    if (global.__storeDisk) disk = global.__storeDisk;            // dipakai tes
+    else {
+      const db = await bukaIndexedDb();
+      if (db) disk = buatDisk(db);
+    }
+    if (!disk) { hidrasiLokal(); return; }
+    try {
+      (await disk.semua()).forEach(([k, s]) => { if (milikStore(k)) mem.set(k, s); });
+      await pindahkanDariLokal();
+    } catch (e) {
+      console.warn('store: IndexedDB tidak bisa dipakai, memakai localStorage', e);
+      disk = null;
+      hidrasiLokal();
+    }
+  })();
+
+  function baca(kunci, defaultVal) {
+    const isi = mem.get(kunci);
+    if (isi === undefined) return defaultVal;
+    try { return JSON.parse(isi); }
+    catch (e) { console.error('store.baca gagal:', kunci, e); return defaultVal; }
+  }
+
+  function tulis(kunci, nilai) {
+    let isi;
+    try { isi = JSON.stringify(nilai); }
+    catch (e) { console.error('store.tulis gagal:', kunci, e); return false; }
+    mem.set(kunci, isi);
+    kabariTab(kunci, isi);
+    if (!disk) return tulisLokal(kunci, isi);
+    disk.simpan(kunci, isi).catch((e) => {
+      console.warn('store: IndexedDB gagal menyimpan, beralih ke localStorage', e);
+      disk = null;
+      if (!pernahLapor) {
+        pernahLapor = true;
+        global.toast && global.toast('Penyimpanan cepat tidak tersedia — memakai penyimpanan lama', 'err');
+      }
+      tulisLokal(kunci, isi);
+    });
+    return true;
+  }
+
+  // Hapus satu kunci dari semua tempat (dipakai saat event dihapus)
+  function hapus(kunci) {
+    mem.delete(kunci);
+    kabariTab(kunci, null);
+    try { localStorage.removeItem(kunci); } catch (e) { /* abaikan */ }
+    if (disk) disk.hapus(kunci).catch((e) => console.warn('store: gagal menghapus', kunci, e));
+    return true;
   }
 
   /* ---------------- Waktu WIB (Asia/Jakarta, UTC+7) ----------------
@@ -125,7 +296,7 @@
   function hapusEvent(id) {
     setEvents(getEvents().filter((e) => e.id !== id));
     ['stokawal', 'produkpameran', 'cek', 'cekstatus', 'transaksi', 'inputan'].forEach((k) =>
-      localStorage.removeItem(PREFIX + id + '.' + k)
+      hapus(PREFIX + id + '.' + k)
     );
     if (getActiveId() === id) setActiveId(null);
   }
@@ -242,6 +413,7 @@
 
   global.Store = {
     CEK_DEFAULT,
+    siap, hapus,
     baca, tulis, uid, tglWIB, jamWIB, waktuWIB,
     getEvents, setEvents, buatEvent, updateEvent, hapusEvent,
     getActiveId, setActiveId, getActiveEvent,

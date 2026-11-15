@@ -204,7 +204,103 @@ language sql security definer set search_path = pameran, extensions as $$
   insert into pameran.log_aktivitas (fungsi, hasil) values (fn, coalesce(hasil, ''));
 $$;
 
-/* ---------------- Master produk ---------------- */
+/* ---------------- Master produk ----------------
+   pameran.master_produk adalah salinan produk yang dipakai di pameran.
+   Isinya bisa diisi manual ATAU ditarik otomatis dari tabel produk POS
+   (`public.products`): saat kode tidak ditemukan, skema ini menyelaraskan
+   produk POS ke master_produk lalu mencari lagi. Nama kolom POS dideteksi
+   otomatis (code/kode/sku, name/nama, price/harga, dst.), jadi tidak perlu
+   mengubah tabel POS sama sekali.                                       */
+
+-- Nama kolom pertama yang ada di tabel, sesuai urutan kandidat
+-- (null bila tidak satu pun cocok)
+create or replace function pameran.f_kolom(p_tabel regclass, p_kandidat text[]) returns text
+language sql stable as $$
+  select a.attname::text
+    from pg_attribute a
+   where a.attrelid = p_tabel
+     and a.attnum > 0
+     and not a.attisdropped
+     and a.attname = any (p_kandidat)
+   order by array_position(p_kandidat, a.attname::text)
+   limit 1;
+$$;
+
+-- Tipe kolom (mis. 'boolean'), null bila kolom tidak ada
+create or replace function pameran.f_tipe_kolom(p_tabel regclass, p_nama text) returns text
+language sql stable as $$
+  select a.atttypid::regtype::text
+    from pg_attribute a
+   where a.attrelid = p_tabel
+     and a.attname = p_nama
+     and a.attnum > 0
+     and not a.attisdropped;
+$$;
+
+-- Tarik produk dari tabel POS (public.products) ke pameran.master_produk.
+-- Hanya membaca tabel POS dan hanya MENAMBAH baris yang belum ada, jadi data
+-- master yang sudah diisi manual tidak tertimpa. Mengembalikan jumlah baris baru.
+create or replace function pameran.f_sync_master_pos() returns integer
+language plpgsql security definer set search_path = pameran, public, extensions as $$
+declare
+  v_rel regclass := to_regclass('public.products');
+  c_kode text;
+  c_nama text;
+  c_harga text;
+  c_isbn text;
+  v_isbn text;
+  v_harga text;
+  v_saring text := '';
+  v_sql text;
+  n integer := 0;
+begin
+  if v_rel is null then return 0; end if;
+
+  c_kode := pameran.f_kolom(v_rel, array['code', 'kode', 'sku', 'product_code', 'barcode', 'isbn']);
+  c_nama := pameran.f_kolom(v_rel, array['name', 'nama', 'nama_produk', 'product_name', 'title', 'judul']);
+  if c_kode is null or c_nama is null then return 0; end if;
+
+  c_harga := pameran.f_kolom(v_rel, array['price', 'harga', 'harga_jual', 'sell_price', 'sale_price', 'unit_price']);
+  c_isbn  := pameran.f_kolom(v_rel, array['isbn', 'barcode', 'ean', 'kode_barcode']);
+  if c_isbn = c_kode then c_isbn := null; end if; -- barcode sudah jadi kode
+
+  v_isbn := case when c_isbn is null then quote_literal('')
+                 else format('coalesce(btrim(p.%I::text), %L)', c_isbn, '') end;
+  v_harga := case when c_harga is null then quote_literal('0')
+                  else format('coalesce(round(p.%I::numeric)::bigint, 0)', c_harga) end;
+
+  if pameran.f_tipe_kolom(v_rel, 'is_active') = 'boolean' then
+    v_saring := v_saring || format(' and coalesce(p.%I, true)', 'is_active');
+  end if;
+  if pameran.f_kolom(v_rel, array['deleted_at']) is not null then
+    v_saring := v_saring || format(' and p.%I is null', 'deleted_at');
+  end if;
+
+  v_sql := format($f$
+    insert into pameran.master_produk (kode, isbn, nama, harga)
+    select distinct on (pameran.f_norm_kode(x.kode)) x.kode, x.isbn, x.nama, x.harga
+      from (
+        select btrim(p.%1$I::text) as kode,
+               %2$s as isbn,
+               btrim(p.%3$I::text) as nama,
+               %4$s as harga
+          from public.products p
+         where coalesce(btrim(p.%1$I::text), '') <> ''
+           and coalesce(btrim(p.%3$I::text), '') <> ''
+           %5$s
+      ) x
+     where not exists (
+       select 1 from pameran.master_produk m
+        where pameran.f_norm_kode(m.kode) = pameran.f_norm_kode(x.kode)
+           or (m.isbn <> '' and pameran.f_norm_kode(m.isbn) = pameran.f_norm_kode(x.kode))
+     )
+     order by pameran.f_norm_kode(x.kode)
+  $f$, c_kode, v_isbn, c_nama, v_harga, v_saring);
+
+  execute v_sql;
+  get diagnostics n = row_count;
+  return n;
+end $$;
 
 -- Cari persis (kode/ISBN, toleran ISBN-10/13 & nol di depan) lebih dulu;
 -- bila tidak ada, cari kata kunci pada nama/kode/isbn (maks. 50 hasil).
@@ -227,6 +323,20 @@ begin
   select * into m from pameran.master_produk
    where pameran.f_varian(kode) && vs or pameran.f_varian(isbn) && vs
    order by id limit 1;
+
+  -- Belum ada di master lokal: selaraskan dulu dengan tabel produk POS.
+  -- Bila tabel POS tidak ada / kolomnya tak dikenali, cukup dilewati.
+  if not found then
+    begin
+      perform pameran.f_sync_master_pos();
+    exception when others then
+      null;
+    end;
+    select * into m from pameran.master_produk
+     where pameran.f_varian(kode) && vs or pameran.f_varian(isbn) && vs
+     order by id limit 1;
+  end if;
+
   if found then
     return jsonb_build_object(
       'exact', jsonb_build_object('kode', m.kode, 'isbn', m.isbn, 'nama', m.nama, 'harga', m.harga),
@@ -308,8 +418,22 @@ begin
    where pameran.f_varian(mp.kode) && pameran.f_varian(v_kode)
       or pameran.f_varian(mp.isbn) && pameran.f_varian(v_kode)
    order by mp.id limit 1;
+
+  -- Kode mungkin baru ada di tabel produk POS → selaraskan lalu cari lagi.
   if not found then
-    raise exception 'Kode % tidak ada di tabel master_produk', left(v_kode, 40);
+    begin
+      perform pameran.f_sync_master_pos();
+    exception when others then
+      null;
+    end;
+    select mp.* into m from pameran.master_produk mp
+     where pameran.f_varian(mp.kode) && pameran.f_varian(v_kode)
+        or pameran.f_varian(mp.isbn) && pameran.f_varian(v_kode)
+     order by mp.id limit 1;
+  end if;
+
+  if not found then
+    raise exception 'Kode % tidak ada di tabel master_produk maupun produk POS', left(v_kode, 40);
   end if;
 
   select exists (
@@ -774,6 +898,9 @@ revoke execute on function pameran.f_list_users() from public, anon, authenticat
 revoke execute on function pameran.f_test(text) from public, anon, authenticated;
 revoke execute on function pameran.cari_master(text, boolean) from public, anon, authenticated;
 revoke execute on function pameran.f_norm_kode(text) from public, anon, authenticated;
+revoke execute on function pameran.f_kolom(regclass, text[]) from public, anon, authenticated;
+revoke execute on function pameran.f_tipe_kolom(regclass, text) from public, anon, authenticated;
+revoke execute on function pameran.f_sync_master_pos() from public, anon, authenticated;
 revoke execute on function pameran.f_norm_event(text) from public, anon, authenticated;
 revoke execute on function pameran.f_tgl(text) from public, anon, authenticated;
 revoke execute on function pameran.f_int(jsonb, text) from public, anon, authenticated;

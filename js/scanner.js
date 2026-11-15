@@ -2,8 +2,10 @@
    scanner.js — Overlay kamera untuk scan barcode / QR produk
    ------------------------------------------------------------
    Memakai html5-qrcode (vendor/html5-qrcode.min.js, tanpa CDN
-   agar tetap jalan offline). Kamera hanya jalan di HTTPS atau
-   localhost. Selalu ada kolom ketik manual sebagai cadangan.
+   agar tetap jalan offline). Library 368 KB itu BARU dimuat saat
+   scan pertama dibuka — tidak memperlambat pembukaan aplikasi.
+   Kamera hanya jalan di HTTPS atau localhost. Selalu ada kolom
+   ketik manual sebagai cadangan.
 
    Pemakaian:
      Scanner.buka({
@@ -18,7 +20,8 @@
   'use strict';
 
   const DEBOUNCE_MS = 1500; // kode yang sama dalam jeda ini diabaikan
-  let qr = null;
+  const LIB_SRC = 'vendor/html5-qrcode.min.js';
+  let muatJanji = null;
   let aktif = false;
   let sibuk = false;
   let onKode = null;
@@ -29,6 +32,23 @@
   const $ = (id) => document.getElementById(id);
 
   function pesan(teks) { const el = $('scanPesan'); if (el) el.textContent = teks || ''; }
+
+  // Muat library scanner sekali saja, saat benar-benar dipakai.
+  // Resolve true bila Html5Qrcode siap, false bila gagal (offline & belum
+  // pernah ter-cache). Kegagalan tidak diingat agar bisa dicoba lagi.
+  function muatLibrary() {
+    if (typeof global.Html5Qrcode !== 'undefined') return Promise.resolve(true);
+    if (muatJanji) return muatJanji;
+    muatJanji = new Promise((selesai) => {
+      const s = document.createElement('script');
+      s.src = LIB_SRC;
+      s.async = true;
+      s.onload = () => selesai(typeof global.Html5Qrcode !== 'undefined');
+      s.onerror = () => { muatJanji = null; selesai(false); };
+      document.head.appendChild(s);
+    });
+    return muatJanji;
+  }
 
   async function terima(teks, sumber) {
     teks = String(teks || '').trim();
@@ -67,10 +87,14 @@
     $('scanOverlay').style.display = 'block';  // inline: tetap benar walau CSS lama masih ter-cache
     document.body.classList.add('scan-open');
 
-    if (typeof Html5Qrcode === 'undefined') {
-      pesan('Library scanner belum termuat. Gunakan kolom ketik di bawah.');
+    pesan('Menyiapkan kamera…');
+    const siap = await muatLibrary();
+    if (!aktif) return;                       // overlay sudah ditutup saat library dimuat
+    if (!siap) {
+      pesan('Kamera belum bisa dipakai (library scanner gagal dimuat). Gunakan kolom ketik di bawah.');
       return;
     }
+    pesan('');
     try {
       const fmt = global.Html5QrcodeSupportedFormats;
       const cfg = { verbose: false, experimentalFeatures: { useBarCodeDetectorIfSupported: true } };

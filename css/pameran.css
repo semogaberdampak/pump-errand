@@ -1044,6 +1044,30 @@ input[readonly].inp-readonly { background: var(--card-bg-sub); color: var(--text
 /* ---- Diskon per item, status sinkron, detail transaksi ---- */
 .cart-diskon { flex: 1 0 100%; display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: var(--space-2); }
 .cart-diskon select, .cart-diskon input { min-height: 40px; padding-top: 4px; padding-bottom: 4px; }
+
+/* ---- Bilah lengket transaksi (total + bayar) ---- */
+.trx-dock {
+  position: fixed;
+  left: 50%;
+  transform: translateX(-50%);
+  bottom: calc(78px + var(--safe-area-bottom));
+  z-index: 90;
+  width: min(540px, calc(100% - 2 * var(--space-4)));
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg-card);
+  border: 1px solid var(--border-color);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-2);
+}
+.dock-info { min-width: 0; flex: 1; display: flex; flex-direction: column; }
+.dock-label { font-size: 10px; font-weight: 700; letter-spacing: 0.4px; text-transform: uppercase; color: var(--text-muted); }
+.dock-total { font-size: var(--text-lg); font-weight: 800; color: var(--accent-text); white-space: nowrap; }
+.trx-dock .btn { flex: none; min-height: 44px; padding-inline: var(--space-5); }
+/* Ruang ekstra agar item terakhir keranjang tidak tertutup bilah */
+body.dock-open main.content { padding-bottom: calc(var(--space-4) + 96px + 72px + var(--safe-area-bottom)); }
 .cart-rumus { flex: 1 0 100%; font-size: var(--text-xs); color: var(--text-muted); overflow-wrap: anywhere; }
 .cart-rumus:empty { display: none; }
 .cart-rumus.salah { color: var(--alert); font-weight: 700; }
@@ -1103,6 +1127,11 @@ input[readonly].inp-readonly { background: var(--card-bg-sub); color: var(--text
 .pick-info { min-width: 0; display: flex; flex-direction: column; }
 .pick-nama { font-weight: 700; overflow-wrap: anywhere; }
 .pick-sub { font-size: var(--text-xs); color: var(--text-muted); }
+.pick-qty {
+  flex: none; margin-left: auto; padding: 2px 9px; border-radius: var(--radius-full);
+  font-size: var(--text-xs); font-weight: 800; color: var(--accent-text);
+  background: var(--card-bg-sub); border: 1px solid var(--border-color);
+}
 .pick-card.baru { animation: pickKilau .7s ease; }
 @keyframes pickKilau { 0% { box-shadow: 0 0 0 0 rgba(0,163,163,.55); } 100% { box-shadow: 0 0 0 10px rgba(0,163,163,0); } }
 

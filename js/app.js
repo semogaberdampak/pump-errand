@@ -435,8 +435,8 @@
     // Tidak ketemu: tampilkan di modal (bukan toast sekilas) beserta teks yang terbaca, supaya mudah ditelusuri
     showModalBox('Produk tidak ditemukan', `
       <p>${hanyaPersis ? 'Kode yang terbaca' : 'Yang dicari'}: <strong>${esc(String(teks).slice(0, 60))}</strong></p>
-      <p class="rekap-note">Tidak ada produk dengan <em>kode</em> / <em>isbn</em> tersebut${hanyaPersis ? '' : ' (atau judul yang mengandung kata itu)'} di tabel <strong>master_produk</strong>.
-      Periksa isi tabel itu di Supabase, atau ketik judulnya di kolom pencarian.</p>`,
+      <p class="rekap-note">Tidak ada produk dengan <em>kode</em> / <em>isbn</em> tersebut${hanyaPersis ? '' : ' (atau judul yang mengandung kata itu)'} di <strong>produk POS</strong> maupun <strong>master produk pameran</strong>.
+      Periksa kode di aplikasi POS, atau ketik judulnya di kolom pencarian.</p>`,
       '<button class="btn btn-primary btn-block" onclick="tutupModal()">Tutup</button>');
     return true;
   }
@@ -667,9 +667,37 @@
   /* ---- Transaksi Baru ---- */
   let koreksiDari = null;   // id transaksi yang sedang dikoreksi (bila ada)
 
+  // Bilah lengket: tampil selama transaksi berjalan dan keranjang tidak kosong,
+  // sehingga total & tombol bayar tetap terlihat tanpa menggulir keranjang panjang.
+  function renderDock() {
+    const el = $('pmDock');
+    if (!el) return;
+    const tampil = trxAktif && keranjang.length > 0;
+    el.style.display = tampil ? '' : 'none';
+    document.body.classList.toggle('dock-open', tampil);
+    if (!tampil) return;
+    const h = hitungTotal();
+    $('pmDockTotal').textContent = rupiah(h.total);
+    $('pmDockLabel').textContent = 'Total · ' + keranjang.reduce((a, k) => a + k.qty, 0) + ' pcs';
+  }
+
+  // Tombol bayar di bilah lengket: tunai butuh uang diterima, selain itu langsung simpan
+  window.dockBayar = function () {
+    const metode = ($('pmMetode').value) || 'TUNAI';
+    if (metode === 'TUNAI' && ($('pmTunai').value || '') === '') {
+      const row = $('pmBayarRow');
+      if (row && row.scrollIntoView) row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setTimeout(() => { const el = $('pmTunai'); if (el) el.focus(); }, 300);
+      toast('Isi uang diterima dulu', 'error');
+      return;
+    }
+    simpanTransaksi();
+  };
+
   function renderPanelTransaksi() {
     $('pmTrxBaru').style.display = trxAktif ? '' : 'none';
     $('pmBtnBaru').style.display = trxAktif ? 'none' : '';
+    renderDock();
     $('pmJudulTrx').textContent = koreksiDari ? 'Koreksi Transaksi' : 'Transaksi Baru';
     const info = $('pmKoreksiInfo');
     info.style.display = koreksiDari ? '' : 'none';
@@ -735,8 +763,45 @@
     if (tambahDariKode(teks, true)) { $('pmCari').value = ''; $('pmHasilCari').style.display = 'none'; }
   };
 
-  /* ---- Scan di Pameran: produk ditemukan → kartu (pilih) → Scan lagi / Lanjut ke keranjang ---- */
-  let kandidatScan = [];   // [{p, pilih}] produk hasil scan yang menunggu dipilih
+  /* ---- Scanner gun (keyboard wedge) bekerja global ----
+     Scanner gun mengetik kode dengan jeda sangat rapat lalu Enter. Bila fokus
+     tidak ada di kolom input mana pun, kode langsung masuk keranjang tanpa
+     membuka pencarian. Ketikan manusia (jeda > 80 ms) diabaikan. */
+  function pasangScanGun() {
+    let buf = '';
+    let mulai = 0;
+    let terakhir = 0;
+    const lupakan = () => { buf = ''; mulai = 0; };
+
+    document.addEventListener('keydown', function (e) {
+      if (e.ctrlKey || e.metaKey || e.altKey) { lupakan(); return; }
+
+      if (e.key === 'Enter') {
+        const kode = buf;
+        const deras = buf.length >= 4 && Date.now() - mulai < 400;
+        lupakan();
+        if (!deras) return;
+        if (document.querySelector('#modalUmum.open, #scanOverlay.open')) return;
+        if (!document.querySelector('#scr-pameran.active')) return;
+        if (!trxAktif) { toast('Tekan “Transaksi Baru” dulu sebelum scan', 'error'); return; }
+        e.preventDefault();
+        tambahDariKode(kode, false);
+        return;
+      }
+
+      if (typeof e.key !== 'string' || e.key.length !== 1) { lupakan(); return; }
+      const target = e.target;
+      if (target && /INPUT|TEXTAREA|SELECT/.test(target.tagName)) { lupakan(); return; }
+
+      const kini = Date.now();
+      if (kini - terakhir > 80) { buf = ''; mulai = kini; }   // jeda panjang → kode baru
+      terakhir = kini;
+      buf += e.key;
+    });
+  }
+
+  /* ---- Scan di Pameran: produk ditemukan → kartu (otomatis terpilih) → Scan lagi / Lanjut ke keranjang ---- */
+  let kandidatScan = [];   // [{p, pilih, n}] hasil scan yang menunggu dimasukkan; n = berapa kali dipindai
 
   // Masukkan produk ke keranjang (baris yang sama bertambah qty); kembalikan total qty produk itu di keranjang
   function masukKeranjang(p, qty) {
@@ -755,9 +820,11 @@
           <span class="pick-nama">${esc(k.p.nama)}</span>
           <span class="pick-sub">${esc(k.p.kode)} · ${rupiah(k.p.harga)} · stok ${stokTersisa(k.p.kode)}</span>
         </span>
+        ${k.n > 1 ? '<span class="pick-qty">×' + k.n + '</span>' : ''}
       </button>`).join('');
+    const totalPcs = kandidatScan.filter((k) => k.pilih).reduce((a, k) => a + k.n, 0);
     showModalBox(kandidatScan.length > 1 ? 'Produk ditemukan (' + kandidatScan.length + ')' : 'Produk ditemukan',
-      '<p class="rekap-note">Ketuk kartu untuk memilih produk yang dibeli. Tekan <strong>Scan</strong> bila membeli lebih dari satu jenis, atau <strong>Lanjut</strong> untuk memasukkan yang dipilih ke keranjang.</p>' +
+      '<p class="rekap-note">Semua hasil scan otomatis terpilih — scan judul lain, atau scan kode yang sama lagi untuk menambah jumlah. Ketuk kartu untuk membatalkan pilihan, lalu <strong>Lanjut</strong> memasukkan <span id="pickTotal">' + totalPcs + ' pcs</span> ke keranjang.</p>' +
       '<div class="pick-list">' + kartu + '</div>',
       `<div class="btn-row">
         <button class="btn btn-secondary" onclick="scanLagiPameran()">Scan</button>
@@ -771,6 +838,8 @@
     k.pilih = !k.pilih;
     const el = document.querySelector('.pick-card[data-kode="' + (window.CSS && CSS.escape ? CSS.escape(kode) : kode) + '"]');
     if (el) { el.classList.toggle('on', k.pilih); el.setAttribute('aria-checked', k.pilih ? 'true' : 'false'); }
+    const total = $('pickTotal');
+    if (total) total.textContent = kandidatScan.filter((x) => x.pilih).reduce((a, x) => a + x.n, 0) + ' pcs';
   };
 
   // Scan produk berikutnya: modal ditutup, kamera lanjut; kartu sebelumnya tetap tersimpan
@@ -778,14 +847,14 @@
 
   window.lanjutKandidat = function () {
     const dipilih = kandidatScan.filter((k) => k.pilih);
-    if (!dipilih.length) { toast('Ketuk kartu produk yang dipilih dulu', 'error'); return; }
-    let melebihi = 0;
-    dipilih.forEach((k) => { masukKeranjang(k.p, 1); if (stokTersisa(k.p.kode) < 0) melebihi++; });
+    if (!dipilih.length) { toast('Ketuk kartu produk yang akan dimasukkan dulu', 'error'); return; }
+    let melebihi = 0, totalPcs = 0;
+    dipilih.forEach((k) => { totalPcs += k.n; masukKeranjang(k.p, k.n); if (stokTersisa(k.p.kode) < 0) melebihi++; });
     kandidatScan = [];
     tutupModal();
     Scanner.tutup();
     renderKeranjang();
-    toast(dipilih.length + ' produk masuk keranjang — atur jumlah & diskon' + (melebihi ? ' (ada yang melebihi stok)' : ''), melebihi ? 'error' : 'ok');
+    toast(totalPcs + ' pcs (' + dipilih.length + ' judul) masuk keranjang — atur diskon bila perlu' + (melebihi ? ' (ada yang melebihi stok)' : ''), melebihi ? 'error' : 'ok');
     const box = $('pmKeranjang');
     if (box && box.scrollIntoView) box.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
@@ -795,12 +864,14 @@
     kandidatScan = [];
     Scanner.buka({
       judul: 'Scan produk — transaksi',
-      petunjuk: 'Scan produk, pilih kartunya, lalu Lanjut. Scan lagi bila membeli lebih dari satu jenis.',
+      petunjuk: 'Scan produk satu per satu, lalu tekan Lanjut. Kode yang sama di-scan lagi = jumlah bertambah.',
       onTutup: () => { kandidatScan = []; },
       onKode: async (teks, sumber) => {
         const p = Store.findProdukPameran(evtId, teks);
         if (p) {
-          if (!kandidatScan.some((k) => k.p.kode === p.kode)) kandidatScan.push({ p, pilih: false });
+          const ada = kandidatScan.find((k) => k.p.kode === p.kode);
+          if (ada) { ada.n += 1; ada.pilih = true; }   // buku yang sama: tambah jumlah
+          else kandidatScan.push({ p, pilih: true, n: 1 });
           tampilkanKandidat(p.kode);
           return true;                       // scanner ditahan sampai modal ditutup
         }
@@ -869,6 +940,7 @@
       if (rm) { rm.textContent = rumusBaris(k, b); rm.classList.toggle('salah', b.salah); }
     });
     hitungKembalian();
+    renderDock();
   };
 
   window.ubahDiskonItem = function (i, bagian, nilai) {
@@ -1551,11 +1623,16 @@
 
 
   /* ================= INIT ================= */
-  document.addEventListener('DOMContentLoaded', function () {
+  document.addEventListener('DOMContentLoaded', async function () {
     terapkanTheme(document.documentElement.getAttribute('data-theme') === 'dark', false); // sinkronkan posisi slider
     isiDbUrl(); // URL proyek Supabase (dikunci di js/supabase.js) pada halaman Admin, hanya-baca
 
+    // Data disimpan di IndexedDB: tunggu termuat ke memori sebelum layar dirender,
+    // supaya pameran & transaksi tidak tampak kosong sesaat setelah aplikasi dibuka.
+    if (Store.siap) { try { await Store.siap; } catch (e) { console.warn('Muat penyimpanan gagal:', e); } }
+
     pulihSesi(); // gate RBAC + auto logout + pulihkan pameran aktif & halaman terakhir
+    pasangScanGun(); // scanner gun (keyboard wedge) bekerja tanpa fokus ke kolom cari
 
     // Shortcut pencarian: "/" fokus ke input cari
     // Shortcut tema: Ctrl+Shift+T
